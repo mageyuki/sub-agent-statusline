@@ -1,6 +1,6 @@
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createEmptyState,
   countHistoricalSubagentExecutions,
@@ -25,6 +25,12 @@ import {
   readRuntimeState,
   useFrozenTime,
 } from "../test/helpers/runtime-harness.js";
+import { deferred } from "../test/helpers/v2-fixtures.js";
+
+vi.mock("node:fs/promises", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, writeFile: vi.fn(actual.writeFile) };
+});
 
 function child(overrides: Partial<ChildSessionState> = {}): ChildSessionState {
   return {
@@ -42,6 +48,37 @@ function child(overrides: Partial<ChildSessionState> = {}): ChildSessionState {
 }
 
 describe("state", () => {
+  it("a false commit guard performs no filesystem work", async () => {
+    const dir = await mkdtemp("/tmp/opencode/subagent-state-guard-");
+    try {
+      const statePath = join(dir, "absent", "state.json");
+      await saveState(statePath, createEmptyState(), { shouldCommit: () => false });
+      await saveStatusText(join(dir, "absent", "status.txt"), "cancelled", { shouldCommit: () => false });
+      expect(await readdir(dir)).toEqual([]);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it.each(["state", "text"])("cancels %s immediately before rename and removes only its owned temp file", async kind => {
+    const dir = await mkdtemp("/tmp/opencode/subagent-state-guard-");
+    try {
+      const path = join(dir, kind === "state" ? "state.json" : "status.txt");
+      await writeFile(path, "old snapshot");
+      await writeFile(join(dir, ".other-writer.tmp"), "leave alone");
+      const reached = deferred<void>(); const release = deferred<void>();
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      vi.mocked(writeFile).mockImplementationOnce(async (...args) => {
+        await actual.writeFile(...args); reached.resolve(); await release.promise;
+      });
+      let alive = true;
+      const pending = kind === "state"
+        ? saveState(path, createEmptyState(), { shouldCommit: () => alive })
+        : saveStatusText(path, "new snapshot", { shouldCommit: () => alive });
+      await reached.promise; alive = false; release.resolve(); await pending;
+      expect(await readFile(path, "utf8")).toBe("old snapshot");
+      expect((await readdir(dir)).sort()).toEqual([".other-writer.tmp", kind === "state" ? "state.json" : "status.txt"]);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   it("upserts tool wrappers without counting them and marks terminal statuses", () => {
     useFrozenTime("2026-04-30T10:05:00.000Z");
     const state = createEmptyState();

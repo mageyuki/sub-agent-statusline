@@ -521,7 +521,9 @@ export async function loadState(statePath: string): Promise<StatuslineState> {
 async function writeLocalStatusFile(
   path: string,
   contents: string,
+  options?: { shouldCommit?: () => boolean },
 ): Promise<void> {
+  if (options?.shouldCommit?.() === false) return;
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: STATUS_DIR_MODE });
 
@@ -535,6 +537,10 @@ async function writeLocalStatusFile(
       encoding: "utf8",
       mode: STATUS_FILE_MODE,
     });
+    if (options?.shouldCommit?.() === false) {
+      await rm(tempPath, { force: true });
+      return;
+    }
     await rename(tempPath, path);
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => undefined);
@@ -545,16 +551,19 @@ async function writeLocalStatusFile(
 export async function saveStatusText(
   textPath: string,
   contents: string,
+  options?: { shouldCommit?: () => boolean },
 ): Promise<void> {
-  await writeLocalStatusFile(textPath, contents);
+  await writeLocalStatusFile(textPath, contents, options);
 }
 
 export async function saveState(
   statePath: string,
   state: StatuslineState,
+  options?: { shouldCommit?: () => boolean },
 ): Promise<void> {
+  if (options?.shouldCommit?.() === false) return;
   refreshDerivedFields(state);
-  await writeLocalStatusFile(statePath, JSON.stringify(state, null, 2));
+  await writeLocalStatusFile(statePath, JSON.stringify(state, null, 2), options);
 }
 
 export function upsertRunningChild(
