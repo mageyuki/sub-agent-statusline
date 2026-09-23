@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { t, detectSystemLocale, type Locale } from "./i18n.js";
 
 describe("i18n", () => {
@@ -40,6 +40,22 @@ describe("i18n", () => {
   });
 
   describe("t()", () => {
+    it.each([
+      ["en_US.UTF-8", ["Interrupted", "Status may be stale", "Input + output usage", "Subagent list unavailable"]],
+      ["es_ES.UTF-8", ["Interrumpido", "El estado puede estar desactualizado", "Uso de entrada + salida", "Lista de subagentes no disponible"]],
+    ])("provides concise V2 feedback in %s", async (locale, expected) => {
+      const original = process.env.LANG;
+      try {
+        process.env.LANG = locale;
+        vi.resetModules();
+        const dictionary = await import("./i18n.js");
+        expect([dictionary.t("interrupted"), dictionary.t("stale"),
+          dictionary.t("usage"), dictionary.t("unavailable")]).toEqual(expected);
+      } finally {
+        if (original === undefined) delete process.env.LANG;
+        else process.env.LANG = original;
+      }
+    });
     it("returns translated string for 'subagents' key", () => {
       const result = t("subagents");
       expect(typeof result).toBe("string");

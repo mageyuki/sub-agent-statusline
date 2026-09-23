@@ -49,7 +49,7 @@ const theme: MonitorTheme = {
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
-async function mountSidebar(controller: SidebarViewController, children = [child()]) {
+async function mountSidebar(controller: SidebarViewController, children = [child()], extra: Partial<SidebarViewProps> = {}) {
   const [state, setState] = createSignal(stateWith(children));
   const [mounted, setMounted] = createSignal(true);
   const [expanded, setExpanded] = createSignal(true);
@@ -61,6 +61,7 @@ async function mountSidebar(controller: SidebarViewController, children = [child
   const modelLine = vi.fn((item: ChildSessionState, _width: number) =>
     item.model?.variant ? "Visible model · high" : undefined);
   const setup = await testRender(() => createComponent(Show, {
+    keyed: true,
     get when() { return mounted(); },
     get children() {
       return createComponent(SidebarSubagents, {
@@ -72,6 +73,7 @@ async function mountSidebar(controller: SidebarViewController, children = [child
           keys = input;
           onCleanup(() => { keys = undefined; });
         },
+        ...extra,
       });
     },
   }), { width: 40, height: 35 });
@@ -82,9 +84,9 @@ async function mountSidebar(controller: SidebarViewController, children = [child
   return {
     ...setup, setState, setMounted, expanded, navigate, onNavigateToChild,
     onReturnFocus, onToggleListFocus, modelLine, keys: () => keys,
-    key(name: string) {
+    key(name: string, modifiers: Partial<Pick<KeyEvent, "ctrl" | "meta" | "shift" | "option">> = {}) {
       const event = new KeyEvent({ name, sequence: name, ctrl: false, meta: false,
-        shift: false, option: false, number: false, raw: name, eventType: "press" });
+        shift: false, option: false, number: false, raw: name, eventType: "press", source: "raw", ...modifiers });
       keys?.onKeyDown(event);
       return event;
     },
@@ -200,6 +202,53 @@ describe("shared sidebar view ownership", () => {
       rows: [{ id: "ses_a", height: 4 }, { id: "ses_b", height: 3 }],
       scrollTop: 0, scrollHeight: 7, viewportHeight: 2,
     })).toBe(5);
+  });
+
+  it.skipIf(!hasNativeFFI)("renders V2 freshness, interruption and usage without labelling cumulative tokens as context", async () => {
+    const controller = createSidebarViewController();
+    const rows = [child({ status: "error", color: "red", updatedAt: new Date(NOW).toISOString(),
+      tokens: { input: 12, output: 3, total: 15 } })];
+    const a = await mountSidebar(controller, rows, { notice: () => "Status may be stale",
+      childHint: () => "Interrupted", usageLabel: "Input + output usage" });
+    const frame = a.captureCharFrame();
+    expect(frame).toContain("Status may be stale");
+    expect(frame).toContain("Interrupted");
+    expect(frame).toContain("Input + output usage");
+    expect(frame).toContain("15");
+    expect(frame).not.toContain("ctx");
+    const scroll = controller.target()!.getChildren().find(node => node.constructor.name === "ScrollBoxRenderable") as ScrollBoxRenderable;
+    expect(scroll.scrollHeight).toBe(3);
+    controller.dispose();
+  });
+
+  it.skipIf(!hasNativeFFI)("keeps V2 modified list/row keys inert and refuses an empty list without changing V1 defaults", async () => {
+    const controller = createSidebarViewController();
+    const a = await mountSidebar(controller, [child(), child({ id: "ses_second", targetSessionID: "ses_second" })],
+      { strictInput: true });
+    controller.focusList();
+    for (const modifier of ["ctrl", "meta", "shift", "option"] as const) {
+      for (const name of ["j", "down", "left", "return", "escape"]) {
+        const event = a.key(name, { [modifier]: true });
+        expect(event.defaultPrevented).toBe(false);
+      }
+    }
+    expect(a.expanded()).toBe(true);
+    expect(a.navigate).not.toHaveBeenCalled();
+    expect(a.onReturnFocus).not.toHaveBeenCalled();
+    const scroll = controller.target()!.getChildren().find(node => node.constructor.name === "ScrollBoxRenderable") as ScrollBoxRenderable;
+    const row = scroll.content.getChildren()[0].getChildren()[0];
+    for (const name of ["return", "space"]) {
+      const event = new KeyEvent({ name, sequence: name, ctrl: true, meta: false,
+        shift: false, option: false, number: false, raw: name, eventType: "press", source: "raw" });
+      (row as import("@opentui/core").BoxRenderable).onKeyDown?.(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(a.navigate).not.toHaveBeenCalled();
+    a.key("return");
+    expect(a.navigate).toHaveBeenLastCalledWith("ses_child");
+    controller.blurList(); a.setState(stateWith([]));
+    expect(controller.focusList()).toBe(false);
+    controller.dispose();
   });
 
   it.skipIf(!hasNativeFFI)("renders home counts from classified children rather than the stored total", async () => {

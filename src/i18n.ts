@@ -10,9 +10,17 @@ export type Locale = "es" | "en";
 const translations = {
   es: {
     subagents: "Subagentes",
+    interrupted: "Interrumpido",
+    stale: "El estado puede estar desactualizado",
+    usage: "Uso de entrada + salida",
+    unavailable: "Lista de subagentes no disponible",
   },
   en: {
     subagents: "Subagents",
+    interrupted: "Interrupted",
+    stale: "Status may be stale",
+    usage: "Input + output usage",
+    unavailable: "Subagent list unavailable",
   },
 } as const;
 

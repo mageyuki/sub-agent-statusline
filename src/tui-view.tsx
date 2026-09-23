@@ -61,6 +61,9 @@ export interface SidebarViewProps {
   notice?: () => string | undefined;
   childHint?: (childID: string) => string | undefined;
   usageLabel?: string;
+  // V2's targeted layer only owns exact unmodified list keys (plus Alt+B).
+  // Omitted on V1 so its legacy input behavior stays unchanged.
+  strictInput?: boolean;
 }
 
 const FALLBACK_SIDEBAR_WIDTH = 34;
@@ -438,15 +441,16 @@ function formatCompactPercent(percent: number): string {
   return `${Math.max(0, Math.round(percent))}%`;
 }
 
-function contextVariants(child: ChildSessionState): string[] {
+function contextVariants(child: ChildSessionState, usageLabel?: string): string[] {
   const total = resolveTokenTotal(child);
-  const percent = child.tokens?.contextPercent;
+  const percent = usageLabel ? undefined : child.tokens?.contextPercent;
   const hasTotal = typeof total === "number" && Number.isFinite(total);
   const hasPercent = typeof percent === "number" && Number.isFinite(percent);
 
   if (!hasTotal && !hasPercent) return [""];
 
-  const tokenPart = hasTotal ? formatCompactTokenCount(total) : "";
+  const formattedTokens = hasTotal ? formatCompactTokenCount(total) : "";
+  const tokenPart = usageLabel ? formattedTokens.replace(/ ctx$/, "") : formattedTokens;
   const percentPart = hasPercent ? formatCompactPercent(percent) : "";
 
   if (tokenPart && percentPart) {
@@ -503,6 +507,7 @@ function formatChildRowLine(input: {
   nowMs: number;
   sidebarWidth?: number;
   reservedWidth?: number;
+  usageLabel?: string;
 }): {
   labelLines: string[];
   secondaryLine?: string;
@@ -517,7 +522,7 @@ function formatChildRowLine(input: {
   const title = splitParentheticalTitle(childPrimaryText(input.child));
   const parenthetical = childParenthetical(input.child);
 
-  for (const meta of contextVariants(input.child)) {
+  for (const meta of contextVariants(input.child, input.usageLabel)) {
     const detailChars =
       2 + textColumns(elapsed) + (meta ? 3 + textColumns(meta) : 0);
     const labelBudget = Math.min(
@@ -561,6 +566,7 @@ function formatTerminalChildRowLine(input: {
   nowMs: number;
   sidebarWidth?: number;
   reservedWidth?: number;
+  usageLabel?: string;
 }): {
   label: string;
   meta: string;
@@ -572,7 +578,7 @@ function formatTerminalChildRowLine(input: {
   const labelSource = parenthetical
     ? `${title.label} ${parenthetical}`
     : title.label;
-  const context = contextVariants(input.child).find(
+  const context = contextVariants(input.child, input.usageLabel).find(
     (variant) => variant.length > 0,
   );
 
@@ -590,19 +596,22 @@ export function subagentRowHeight(input: {
   nowMs: number;
   sidebarWidth?: number;
   reservedWidth?: number;
+  usageLabel?: string;
+  childHint?: string;
 }): number {
+  const hintHeight = input.childHint ? 1 : 0;
   const modelHeight = input.child.model?.variant
     ? SUBAGENTS_MODEL_ROW_HEIGHT
     : 0;
   if (input.child.status !== "running") {
-    return SUBAGENTS_TERMINAL_ROW_HEIGHT + modelHeight;
+    return SUBAGENTS_TERMINAL_ROW_HEIGHT + modelHeight + hintHeight;
   }
 
   const line = formatChildRowLine(input);
   return (
     (line.secondaryLine
       ? SUBAGENTS_RUNNING_ROW_HEIGHT
-      : SUBAGENTS_RUNNING_ROW_HEIGHT - 1) + modelHeight
+      : SUBAGENTS_RUNNING_ROW_HEIGHT - 1) + modelHeight + hintHeight
   );
 }
 
@@ -707,6 +716,7 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
           child.model?.providerID ?? "",
           child.model?.modelID ?? "",
           child.model?.variant ?? "",
+          props.childHint?.(child.id) ?? "",
         ]),
       )
       .join("|"),
@@ -724,6 +734,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
             nowMs,
             sidebarWidth,
             reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+            usageLabel: props.usageLabel,
+            childHint: props.childHint?.(child.id),
           }),
         0,
       ) +
@@ -743,9 +755,10 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
     restoreFramesRemaining: 0,
   };
   const focusRegistration: SidebarListFocusRegistration = {
-    target: () => listContainer,
+    target: () => props.strictInput && visibleChildIDs().length === 0 ? undefined : listContainer,
     focusList: (preferredChildID?: string) => {
-      if (!listContainer) return false;
+      if (!listContainer || (props.strictInput &&
+        (listContainer.isDestroyed || !listContainer.visible || visibleChildIDs().length === 0))) return false;
       const ids = visibleChildIDs();
       if (preferredChildID && ids.includes(preferredChildID)) {
         setSelectedChildID(preferredChildID);
@@ -826,6 +839,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
             nowMs,
             sidebarWidth,
             reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+            usageLabel: props.usageLabel,
+            childHint: props.childHint?.(child.id),
           }) + SUBAGENTS_ROW_GAP;
       }
     }
@@ -842,6 +857,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         nowMs,
         sidebarWidth,
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+        usageLabel: props.usageLabel,
+        childHint: props.childHint?.(child.id),
       }),
     }));
   };
@@ -885,6 +902,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         nowMs: props.nowMs(),
         sidebarWidth: props.sidebarWidth?.(),
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+        usageLabel: props.usageLabel,
+        childHint: props.childHint?.(selectedChild.id),
       });
     const viewportTop = scrollbox.scrollTop;
     const viewportBottom = viewportTop + listHeight();
@@ -962,6 +981,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
   const handleListKeyDown = (event: KeyEvent): void => {
     if (!listFocused()) return;
     const name = event.name.toLowerCase();
+    if (props.strictInput && (event.ctrl || event.shift || event.super || event.hyper ||
+      ((event.meta || event.option) && name !== "b"))) return;
     if ((event.meta || event.option) && name === "b") {
       props.onToggleListFocus();
     } else if (name === "j" || name === "down" || name === "arrowdown") {
@@ -1068,6 +1089,7 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         nowMs: props.nowMs(),
         sidebarWidth: props.sidebarWidth?.(),
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+        usageLabel: props.usageLabel,
       });
     });
     const terminalLine = createMemo(() => {
@@ -1078,6 +1100,7 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         nowMs: props.nowMs(),
         sidebarWidth: props.sidebarWidth?.(),
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+        usageLabel: props.usageLabel,
       });
     });
     const rowHeight = createMemo(() => {
@@ -1088,6 +1111,8 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         nowMs: props.nowMs(),
         sidebarWidth: props.sidebarWidth?.(),
         reservedWidth: SUBAGENTS_ROW_MARKER_WIDTH,
+        usageLabel: props.usageLabel,
+        childHint: props.childHint?.(currentChild.id),
       });
     });
     const modelLine = createMemo(() => {
@@ -1117,6 +1142,7 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
     });
     const handleKeyDown = (event: KeyEvent): void => {
       if (!clickable()) return;
+      if (props.strictInput && (event.ctrl || event.meta || event.option || event.shift || event.super || event.hyper)) return;
       setFocused(true);
       if (event.name === "return" || event.name === "space") {
         activate();
@@ -1243,6 +1269,9 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
             </Show>
           </box>
         </Show>
+        <Show when={props.childHint?.(rowProps.childID)}>
+          {(hint: Accessor<string>) => <text fg={props.theme.warning}>{`    ${hint()}`}</text>}
+        </Show>
       </box>
     );
   };
@@ -1306,6 +1335,16 @@ export function SidebarSubagents(props: SidebarViewProps): JSX.Element {
         </Show>
       </box>
       <AggregateBar />
+      <Show when={props.notice?.()}>
+        {(notice: Accessor<string>) => (
+          <text fg={props.theme.warning}>{wrapCompactText(notice(), rowWidthBudget(props.sidebarWidth?.()), 3).join("\n")}</text>
+        )}
+      </Show>
+      <Show when={props.usageLabel}>
+        {(label: Accessor<string>) => (
+          <text fg={props.theme.textMuted}>{wrapCompactText(label(), rowWidthBudget(props.sidebarWidth?.()), 3).join("\n")}</text>
+        )}
+      </Show>
 
       <Show when={props.expanded()}>
         <scrollbox
