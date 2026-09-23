@@ -5,7 +5,7 @@ import type { ChildSessionState, StatuslineState } from "./state.js";
 import {
   createTuiMaintenanceTimers,
   runTuiStateMaintenance,
-} from "./tui.js";
+} from "./tui-v1.js";
 
 function child(overrides: Partial<ChildSessionState> = {}): ChildSessionState {
   return {

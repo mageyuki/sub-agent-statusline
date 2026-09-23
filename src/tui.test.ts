@@ -15,7 +15,7 @@ import {
   resolveTuiSubagentSnapshot,
   subagentRowHeight,
   wrapCompactText,
-} from "./tui.js";
+} from "./tui-v1.js";
 import { textColumns } from "./text-width.js";
 import {
   focusPromptWithDeferredRetry,
