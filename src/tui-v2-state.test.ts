@@ -1,4 +1,4 @@
-import type { SessionInfo, SessionListOutput, SessionActiveOutput, SessionMessageInfo } from "@opencode/client";
+import type { SessionInfo, SessionListOutput, SessionActiveOutput, SessionMessageInfo, SessionCreated } from "@opencode/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createV2Monitor, type V2Monitor, type V2MonitorInput } from "./tui-v2-state.js";
 import { countRetainedSubagentStatuses } from "./state.js";
@@ -36,10 +36,123 @@ function monitorFixture() {
 function terminal(overrides: Partial<SessionInfo> = {}) {
   return childInfo({ outcome: "succeeded", time: { created: T0, updated: T0, idle: T0 + 2_000 }, ...overrides });
 }
+function created(id = "ses_child"): SessionCreated {
+  return { ...header(0, T0, id), type: "session.created", data: {
+    sessionID: id, parentID: "ses_parent", projectID: "project_test", slug: "fixture", title: "Unstarted",
+    location: { directory: "/fixture/project" }, version: "2.0.11",
+  } };
+}
+function controlledDetails(f: ReturnType<typeof monitorFixture>) {
+  const pending = new Map<string, ReturnType<typeof deferred<SessionInfo>>>();
+  const arrivals = new Map<string, ReturnType<typeof deferred<void>>>();
+  const results = new Map<string, Promise<SessionInfo>>();
+  let finishing = false;
+  let inFlight = 0;
+  let peak = 0;
+  const arrived = (id: string) => {
+    let barrier = arrivals.get(id);
+    if (!barrier) { barrier = deferred<void>(); arrivals.set(id, barrier); }
+    return barrier;
+  };
+  f.get.mockImplementation(({ sessionID }) => {
+    inFlight++; peak = Math.max(peak, inFlight);
+    const response = deferred<SessionInfo>(); pending.set(sessionID, response);
+    const result = response.promise.finally(() => { inFlight--; });
+    results.set(sessionID, result); arrived(sessionID).resolve();
+    if (finishing) response.resolve(childInfo({ id: sessionID }));
+    return result;
+  });
+  return {
+    started: (id: string) => arrived(id).promise,
+    result: (id: string) => results.get(id)!,
+    release: (id: string) => pending.get(id)!.resolve(childInfo({ id })),
+    finish() {
+      finishing = true;
+      for (const [id, response] of pending) response.resolve(childInfo({ id }));
+    },
+    peak: () => peak,
+    inFlight: () => inFlight,
+  };
+}
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(T0 + 20_000); });
 afterEach(() => { monitors.splice(0).forEach(monitor => monitor.dispose()); });
 
 describe("V2 execution evidence", () => {
+  it("state snapshots cannot mutate monitor rows, nested usage/model values, or execution counters", async () => {
+    const f = monitorFixture();
+    f.setInfo(childInfo({ model: { providerID: "fixture", id: "model" } }));
+    await f.monitor.accept(started(0, T0)); await f.monitor.accept(usage(T0 + 1_000));
+    const snapshot = f.monitor.state();
+    snapshot.children.ses_child.title = "External mutation";
+    snapshot.children.ses_child.tokens!.input = 999;
+    snapshot.children.ses_child.model!.modelID = "mutated";
+    delete snapshot.countedChildIDs.ses_child;
+    snapshot.totalExecuted = 999;
+    expect(f.monitor.state()).toMatchObject({ totalExecuted: 1, countedChildIDs: { ses_child: true },
+      children: { ses_child: { title: "Owned child", tokens: { input: 40, output: 7, total: 47 },
+        model: { providerID: "fixture", modelID: "model" } } } });
+    await f.monitor.accept(succeeded(1, T0 + 2_000));
+    expect(f.onChange.mock.lastCall?.[0]).toMatchObject({ totalExecuted: 1,
+      children: { ses_child: { status: "done", tokens: { input: 40, output: 7, total: 47 } } } });
+  });
+
+  it("retained state snapshots stay unchanged after later execution, usage, and deletion events", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    const snapshot = f.monitor.state(); const expected = structuredClone(snapshot);
+    await f.monitor.accept(usage(T0 + 1_000));
+    await f.monitor.accept(succeeded(1, T0 + 2_000));
+    await f.monitor.accept(deleted(2, T0 + 3_000));
+    expect(snapshot).toEqual(expected);
+    expect(f.monitor.state().children).toEqual({});
+  });
+
+  it("retires metadata-only created records instead of invalidating them on every reconnect", async () => {
+    const f = monitorFixture();
+    const infos = Array.from({ length: 50 }, (_, i) => childInfo({ id: `ses_unstarted_${i}` }));
+    f.setInfos(infos);
+    for (const info of infos) await f.monitor.accept(created(info.id));
+    expect(f.monitor.state().children).toEqual({});
+    expect(f.monitor.state().totalExecuted).toBe(0);
+    await f.monitor.reconnect();
+    expect(f.invalidate).not.toHaveBeenCalled();
+  });
+
+  it("retires unused metadata when an unrelated in-flight root read finishes without publishing", async () => {
+    const f = monitorFixture();
+    const pending = deferred<SessionInfo>(); f.get.mockReturnValueOnce(pending.promise);
+    const root = f.monitor.accept(started(0, T0, "ses_root"));
+    await f.monitor.accept(created());
+    pending.resolve(childInfo({ id: "ses_root", parentID: undefined })); await root;
+    await f.monitor.reconnect();
+    expect(f.invalidate).not.toHaveBeenCalledWith("ses_child");
+  });
+
+  it("an older creation read cannot retire a newer pending execution owner or its sequence guard", async () => {
+    const f = monitorFixture(); f.noCache();
+    const old = deferred<SessionInfo>(); const current = deferred<SessionInfo>();
+    f.get.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const creation = f.monitor.accept(created());
+    const start = f.monitor.accept(started(2, T0 + 2_000));
+    old.resolve(childInfo()); await creation;
+    await f.monitor.accept(succeeded(1, T0 + 1_000));
+    expect(f.get).toHaveBeenCalledTimes(2);
+    current.resolve(childInfo()); await start;
+    expect(f.monitor.state().children.ses_child.status).toBe("running");
+    expect(f.monitor.state().totalExecuted).toBe(1);
+  });
+
+  it("a late metadata-only read cannot retire a deletion tombstone", async () => {
+    const f = monitorFixture(); f.noCache();
+    const old = deferred<SessionInfo>(); f.get.mockReturnValueOnce(old.promise);
+    const creation = f.monitor.accept(created());
+    await f.monitor.accept(deleted(1, T0 + 1_000));
+    old.resolve(childInfo()); await creation;
+    f.setInfo(terminal());
+    await f.monitor.refresh("ses_parent"); await f.monitor.reconnect();
+    expect(f.monitor.state().children).toEqual({});
+    expect(f.invalidate).toHaveBeenCalledWith("ses_child");
+  });
+
   it("does not count metadata-only creation or double-count sequence zero", async () => {
     const f = monitorFixture();
     await f.monitor.refresh("ses_parent");
@@ -170,6 +283,57 @@ describe("V2 execution evidence", () => {
 });
 
 describe("V2 bounded reads and generations", () => {
+  it.each(["parent list", "home cache"])("active evidence survives a usage update after %s hydration", async source => {
+    const f = monitorFixture(); f.setInfo(terminal());
+    const activity = deferred<SessionActiveOutput>();
+    const page = deferred<SessionListOutput>();
+    const hydrated = deferred<void>();
+    f.active.mockReturnValueOnce(activity.promise);
+    f.list.mockReturnValueOnce(page.promise);
+    f.onChange.mockImplementation(() => { hydrated.resolve(); });
+    const refresh = f.monitor.refresh(source === "parent list" ? "ses_parent" : undefined);
+    if (source === "parent list") {
+      page.resolve({ data: [terminal()], cursor: {} });
+      await hydrated.promise;
+    }
+    // The cache/history still holds the previous run's success while active is pending.
+    expect(f.monitor.state().children.ses_child.status).toBe("done");
+    await f.monitor.accept(usage(T0 + 3_000));
+    await f.monitor.accept({ ...header(1, T0 + 4_000), type: "session.renamed",
+      data: { sessionID: "ses_child", title: "Current title" } });
+    activity.resolve({ ses_child: { type: "running" } }); await refresh;
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "running", title: "Current title",
+      tokens: { input: 40, output: 7, total: 47 } });
+    expect(f.monitor.state().children.ses_child.endedAt).toBeUndefined();
+    expect(f.monitor.stale()).toBe(false);
+  });
+
+  it("an older active inventory cannot reopen a newer terminal event after metadata updates", async () => {
+    const f = monitorFixture();
+    await f.monitor.accept(started(0, T0 + 1_000));
+    const activity = deferred<SessionActiveOutput>(); f.active.mockReturnValueOnce(activity.promise);
+    const refresh = f.monitor.refresh("ses_parent");
+    await f.monitor.accept(succeeded(1, T0 + 4_000));
+    await f.monitor.accept(usage(T0 + 5_000));
+    activity.resolve({ ses_child: { type: "running" } }); await refresh;
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done",
+      endedAt: new Date(T0 + 4_000).toISOString(), tokens: { input: 40, output: 7, total: 47 } });
+    expect(f.monitor.stale()).toBe(false);
+  });
+
+  it.each([false, true])("rechecks execution, not metadata, after active detail await (new terminal: %s)", async newTerminal => {
+    const f = monitorFixture(); f.setInfo(terminal()); f.noCache();
+    f.active.mockResolvedValue({ ses_child: { type: "running" } });
+    const details = controlledDetails(f);
+    const refresh = f.monitor.refresh("ses_parent"); await details.started("ses_child");
+    await f.monitor.accept(usage(T0 + 3_000));
+    if (newTerminal) await f.monitor.accept(succeeded(1, T0 + 4_000));
+    details.release("ses_child"); await refresh;
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: newTerminal ? "done" : "running",
+      tokens: { input: 40, output: 7, total: 47 } });
+    expect(f.monitor.state().children.ses_child.endedAt).toBe(newTerminal ? new Date(T0 + 4_000).toISOString() : undefined);
+  });
+
   it.each(["failure", "repeated cursor"])("retains partial pages and active rows on %s", async mode => {
     const f = monitorFixture(); f.noCache();
     f.setInfos([childInfo({ id: "ses_active" })]);
@@ -206,6 +370,77 @@ describe("V2 bounded reads and generations", () => {
     waiting.forEach((item, i) => item.resolve(childInfo({ id: `ses_${i}` })));
     await refresh;
     expect(max).toBe(4); expect(f.monitor.state().totalExecuted).toBe(9);
+  });
+
+  it.each([
+    { arrivingEvent: false, invalidWaiter: false },
+    { arrivingEvent: false, invalidWaiter: true },
+    { arrivingEvent: true, invalidWaiter: false },
+    { arrivingEvent: true, invalidWaiter: true },
+  ])("shares four detail permits across inventory/events: %j", async ({ arrivingEvent, invalidWaiter }) => {
+    const f = monitorFixture(); f.noCache();
+    const ids = Array.from({ length: 9 }, (_, i) => `ses_active_${i}`);
+    f.active.mockResolvedValue(Object.fromEntries(ids.map(id => [id, { type: "running" }])));
+    const details = controlledDetails(f);
+    const refresh = f.monitor.refresh();
+    await details.started("ses_active_3");
+    expect(details.inFlight()).toBe(4);
+    const waiter = f.monitor.accept(started(0, T0 + 1_000, "ses_waiter"));
+    const next = f.monitor.accept(started(0, T0 + 1_000, "ses_next"));
+    if (invalidWaiter) await f.monitor.accept({ ...deleted(1, T0 + 2_000),
+      durable: { aggregateID: "ses_waiter", seq: 1, version: 2 }, data: { sessionID: "ses_waiter" } });
+    // Register after detail() is awaiting this exact SDK promise. This delivers an
+    // event between release of a permit and resumption of the queued waiter.
+    const arriving = arrivingEvent
+      ? details.result("ses_active_0").then(() => f.monitor.accept(started(0, T0 + 3_000, "ses_arriving")))
+      : Promise.resolve();
+    details.release("ses_active_0");
+    await details.started(invalidWaiter ? "ses_next" : "ses_waiter");
+    details.finish();
+    await Promise.all([refresh, waiter, next, arriving]);
+    expect(details.peak()).toBe(4);
+    expect(details.inFlight()).toBe(0);
+    expect(f.get.mock.calls.some(([input]) => input.sessionID === "ses_waiter")).toBe(!invalidWaiter);
+    expect(f.monitor.state().children.ses_next.status).toBe("running");
+    expect(f.monitor.state().children.ses_active_8.status).toBe("running");
+    expect(f.monitor.state().totalExecuted).toBe(11 + Number(arrivingEvent) - Number(invalidWaiter));
+  });
+
+  it("disposal invalidates queued event waiters without starting more inventory details", async () => {
+    const f = monitorFixture(); f.noCache();
+    f.active.mockResolvedValue(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`ses_active_${i}`, { type: "running" }])));
+    const details = controlledDetails(f);
+    const refresh = f.monitor.refresh(); await details.started("ses_active_3");
+    const waiter = f.monitor.accept(started(0, T0, "ses_waiter"));
+    f.monitor.dispose(); f.onChange.mockClear(); f.onIssue.mockClear();
+    details.finish(); await Promise.all([refresh, waiter]);
+    expect(f.get).toHaveBeenCalledTimes(4);
+    expect(details.peak()).toBe(4); expect(details.inFlight()).toBe(0);
+    expect(f.onChange).not.toHaveBeenCalled(); expect(f.onIssue).not.toHaveBeenCalled();
+  });
+
+  it("route invalidation transfers old queued permits only to current inventory readers", async () => {
+    const f = monitorFixture(); f.noCache();
+    const activeMap = (prefix: string, count: number): SessionActiveOutput =>
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [`ses_${prefix}_${i}`, { type: "running" }]));
+    f.active.mockResolvedValueOnce(activeMap("old", 9));
+    const details = controlledDetails(f);
+    const oldRefresh = f.monitor.refresh("ses_A"); await details.started("ses_old_3");
+    const waiter = f.monitor.accept(started(0, T0, "ses_observed"));
+    const newRead = deferred<void>();
+    f.active.mockImplementationOnce(async () => { newRead.resolve(); return activeMap("new", 5); });
+    const newRefresh = f.monitor.refresh("ses_B"); await newRead.promise;
+    details.release("ses_old_0"); await details.started("ses_new_0");
+    details.finish(); await Promise.all([oldRefresh, waiter, newRefresh]);
+    expect(details.peak()).toBe(4); expect(details.inFlight()).toBe(0);
+    // The old waiter is cancelled, but the current inventory must independently
+    // recover its already-observed execution; changing route does not erase it.
+    expect(f.get).toHaveBeenCalledTimes(10); // four old, five active, one observed identity
+    expect(f.get.mock.calls.filter(([input]) => input.sessionID === "ses_observed")).toHaveLength(1);
+    expect(Object.keys(f.monitor.state().children).sort()).toEqual([
+      "ses_new_0", "ses_new_1", "ses_new_2", "ses_new_3", "ses_new_4", "ses_observed",
+    ]);
+    expect(f.onIssue).not.toHaveBeenCalled();
   });
 
   it("rejects an old get after a newer start", async () => {

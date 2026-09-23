@@ -33,6 +33,7 @@ type Execution = {
 type Observed<T> = { at: number; value: T };
 interface Tracked {
   revision: number;
+  executionRevision: number;
   generation: number;
   seq?: number;
   deleted?: boolean;
@@ -72,12 +73,12 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
   let reconnectFlight: Promise<void> | undefined;
   let detailsInFlight = 0;
   let inventoriesInFlight = 0;
-  const detailQueue: Array<() => void> = [];
+  const detailQueue: Array<(granted: boolean) => void> = [];
 
   function record(id: string): Tracked {
     let item = tracked.get(id);
     if (!item) {
-      item = { revision: 0, generation: 0 };
+      item = { revision: 0, executionRevision: 0, generation: 0 };
       tracked.set(id, item);
     }
     return item;
@@ -128,18 +129,23 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
 
   // Both active discovery and event identity resolution share this four-read bound.
   async function detail(id: string, valid: () => boolean): Promise<SessionInfo | undefined> {
-    if (detailsInFlight >= 4) await new Promise<void>(resolve => detailQueue.push(resolve));
-    if (!valid()) {
-      detailQueue.shift()?.();
-      return undefined;
+    if (!valid()) return undefined;
+    if (detailsInFlight >= 4) {
+      // A grant transfers an already-counted permit, including across invalid
+      // waiters. Disposal wakes ungranted waiters without giving them ownership.
+      if (!await new Promise<boolean>(resolve => detailQueue.push(resolve))) return undefined;
+    } else {
+      detailsInFlight++;
     }
-    detailsInFlight++;
     try {
+      if (!valid()) return undefined;
       const info = await input.session.get({ sessionID: id });
       return valid() ? info : undefined;
     } finally {
-      detailsInFlight--;
-      detailQueue.shift()?.();
+      const next = detailQueue.shift();
+      if (next) next(true);
+      else detailsInFlight--;
+      forgetRetired();
     }
   }
 
@@ -182,7 +188,9 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     if (!info.parentID) return;
     if (!tracked.has(info.id) && !active && !(info.outcome && info.time.idle !== undefined)) return;
     const item = record(info.id);
-    if (item.deleted || item.revision > readRevision) return;
+    // Metadata/usage arriving during active() does not contradict its running
+    // evidence. Only a newer execution event (or deletion) supersedes that read.
+    if (item.deleted || (active ? item.executionRevision : item.revision) > readRevision) return;
     const idle = info.time.idle;
     if (active) {
       if (item.execution?.status !== "running") item.execution = { status: "running", at: Date.now() };
@@ -193,7 +201,11 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
         interrupted: info.outcome === "interrupted", hydrated: true };
       item.needsRefresh = false;
     }
-    insert(info, item);
+    if (active && item.revision > readRevision && current.children[info.id]) {
+      applyExecution(info.id, item);
+    } else {
+      insert(info, item);
+    }
   }
   function insert(info: SessionInfo, item: Tracked) {
     if (!info.parentID || item.deleted || !item.execution) return;
@@ -223,7 +235,11 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
         await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
           while (offset < ids.length && valid()) {
             const id = ids[offset++];
-            const unchanged = () => valid() && (tracked.get(id)?.revision ?? 0) <= readRevision && !tracked.get(id)?.deleted;
+            const unchanged = () => {
+              const item = tracked.get(id);
+              const changedAt = activeIDs.has(id) ? item?.executionRevision : item?.revision;
+              return valid() && (changedAt ?? 0) <= readRevision && !item?.deleted;
+            };
             if (!unchanged()) continue;
             try {
               const info = input.cache.get(id) ?? await detail(id, unchanged);
@@ -315,6 +331,9 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     item.retired = false;
     // Reserve ordering before the first await, including sequence zero.
     item.revision = ++revision;
+    if (event.type.startsWith("session.execution.") || event.type === "session.deleted") {
+      item.executionRevision = item.revision;
+    }
     const generation = ++item.generation;
     const readEpoch = epoch;
     const valid = () => !disposed && epoch === readEpoch && !item.deleted && item.generation === generation;
@@ -357,6 +376,9 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
       // An execution event wins over persisted idle; creation/metadata may discover missed execution.
       if (!item.execution) hydrate(info, false, item.revision);
       else insert(info, item);
+      // The generation check above still owns this result. Creation without any
+      // execution evidence needs no retained row or long-lived metadata record.
+      if (!item.execution && !current.children[id]) item.retired = true;
       publish();
     } catch { if (valid()) issue(); }
   }
@@ -378,12 +400,13 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
   }
 
   return {
-    state: () => current, hint: id => current.children[id] && tracked.get(id)?.execution?.interrupted ? "interrupted" : undefined,
+    state: () => structuredClone(current),
+    hint: id => current.children[id] && tracked.get(id)?.execution?.interrupted ? "interrupted" : undefined,
     stale, accept, refresh, reconnect,
     dispose() {
       if (disposed) return;
       disposed = true; epoch++; clearTimers();
-      detailQueue.splice(0).forEach(resolve => resolve());
+      detailQueue.splice(0).forEach(resolve => resolve(false));
       tracked.clear();
     },
   };
