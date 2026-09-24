@@ -291,21 +291,20 @@ Use snapshots only when the complete shape is intentional behavior.
 
 ## `pnpm typecheck` passes but package publishing may still be wrong
 
-PR CI runs:
+The main PR CI job in `.github/workflows/ci.yml` runs:
 
 ```sh
 pnpm typecheck
 pnpm test
-```
-
-It does not run build or pack dry-run.
-
-If packaging, exports, assets, or `package.json.files` changed, run:
-
-```sh
-pnpm build
+pnpm exec tsc --noEmit -p tsconfig.test.json
+pnpm test:package
+pnpm audit --prod --audit-level moderate
 pnpm pack --dry-run
 ```
+
+`pnpm test:package` builds before checking the packed package graph. If packaging, exports, assets, or `package.json.files` changed, run these checks locally too.
+
+A separate `native-test` job uses Node.js 26.4.0 with `--experimental-ffi`, verifies `node:ffi` availability, and runs the full native suite. Its gate requires a successful, nonempty test report with zero pending/skipped or todo tests. This does not replace actual-host acceptance checks.
 
 ## Docs are not included in npm
 

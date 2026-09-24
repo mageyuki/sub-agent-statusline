@@ -301,21 +301,20 @@ Usá snapshot solo si el shape completo es el contrato.
 
 ## `pnpm typecheck` pasa pero el paquete puede no publicar bien
 
-El CI de PR corre:
+El job principal del CI de PR en `.github/workflows/ci.yml` corre:
 
 ```sh
 pnpm typecheck
 pnpm test
-```
-
-No corre build ni pack dry-run.
-
-Si tocaste packaging, exports, assets o `package.json.files`, corré:
-
-```sh
-pnpm build
+pnpm exec tsc --noEmit -p tsconfig.test.json
+pnpm test:package
+pnpm audit --prod --audit-level moderate
 pnpm pack --dry-run
 ```
+
+`pnpm test:package` compila antes de revisar el grafo del paquete empaquetado. Si tocaste packaging, exports, assets o `package.json.files`, corré estos checks también localmente.
+
+Un job separado, `native-test`, usa Node.js 26.4.0 con `--experimental-ffi`, verifica la disponibilidad de `node:ffi` y corre la suite nativa completa. Su gate exige un reporte exitoso con al menos un test y cero tests pendientes/omitidos o todo. Esto no reemplaza los checks de aceptación en el host real.
 
 ## Docs en `docs/es/` no aparecen en npm
 
