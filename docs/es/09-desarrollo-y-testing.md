@@ -4,7 +4,7 @@ Esta guía explica cómo preparar el proyecto localmente, qué comandos usar y c
 
 La regla práctica:
 
-> El núcleo determinístico se prueba con Vitest. La UI completa dentro del host OpenCode/OpenTUI se valida con smoke tests manuales cuando hay cambios visuales.
+> Vitest incluye checks de lógica determinística y componentes nativos. La validación con datos sintéticos dentro de hosts OpenCode/OpenTUI reales cubre solo los casos ejercitados. La ejecución genuina y la interacción habitual con la TUI requieren aceptación aparte, observada por el usuario.
 
 ## Requisitos
 

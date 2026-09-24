@@ -4,7 +4,7 @@ This guide explains how to set up the project locally, which commands to run, an
 
 Practical rule:
 
-> The deterministic core is tested with Vitest. The full UI inside the OpenCode/OpenTUI host is validated with manual smoke tests when visual behavior changes.
+> Vitest includes deterministic logic and native component checks. Qualification with synthetic data inside actual OpenCode/OpenTUI hosts validates only the cases exercised. Genuine execution and normal TUI interaction require separate user-observed acceptance.
 
 ## Requirements
 
