@@ -1824,51 +1824,59 @@ function initializeTui(api: TuiPluginApi, disposeRoot: () => void): void {
     disposeRoot();
   });
 
+  // Legacy hosts invoke slot renderers in a tracked computation. Component
+  // setup must not make monitor/debug reads dependencies of that host owner,
+  // or maintenance would dispose the entire focused sidebar instead of its rows.
+  function SidebarContent(props: { ctx: SidebarContentContext; sessionID: string }) {
+    const { ctx, sessionID } = props;
+    debugLog({
+      kind: "slot.sidebar_content",
+      ctxSessionID: ctx.session_id,
+      resolvedSessionID: sessionID,
+      route: api.route.current,
+      childCount: Object.keys(state().children).length,
+    });
+    const restoreFromChild = (() => {
+      const pending = consumePendingSidebarRefocus();
+      if (pending?.parentSessionID !== sessionID) return undefined;
+      return {
+        childRowID: pending.childRowID,
+        showCompletedHistory: pending.showCompletedHistory ?? false,
+      };
+    })();
+    return (
+      <Show when={subagentsSectionEnabled()}>
+        <SidebarSubagents
+          controller={view}
+          navigate={(id) => navigateToSessionTarget(api, id)}
+          modelLine={(child, width) => formatChildModelLine(child, api.state.provider, width)}
+          registerListKeys={({ onKeyDown }) => useKeyboard(onKeyDown)}
+          sessionID={sessionID}
+          state={state}
+          nowMs={nowMs}
+          expanded={subagentsExpanded}
+          onToggleExpanded={() =>
+            setSubagentsExpandedPreference(!subagentsExpanded())
+          }
+          onSetExpanded={setSubagentsExpandedSilently}
+          onReturnFocus={focusActivePrompt}
+          onToggleListFocus={toggleSidebarListFocus}
+          onNavigateToChild={rememberSidebarChildNavigation}
+          sidebarWidth={() => resolveSidebarWidth(ctx)}
+          theme={ctx.theme.current}
+          restoreFromChild={restoreFromChild}
+        />
+      </Show>
+    );
+  }
+
   api.slots.register({
     order: 90,
     slots: {
       sidebar_content(ctx: SidebarContentContext) {
         const routeSessionID = resolveRouteSessionID(api);
         const sessionID = ctx.session_id ?? routeSessionID ?? "";
-        debugLog({
-          kind: "slot.sidebar_content",
-          ctxSessionID: ctx.session_id,
-          resolvedSessionID: sessionID,
-          route: api.route.current,
-          childCount: Object.keys(state().children).length,
-        });
-        const restoreFromChild = (() => {
-          const pending = consumePendingSidebarRefocus();
-          if (pending?.parentSessionID !== sessionID) return undefined;
-          return {
-            childRowID: pending.childRowID,
-            showCompletedHistory: pending.showCompletedHistory ?? false,
-          };
-        })();
-        return (
-          <Show when={subagentsSectionEnabled()}>
-            <SidebarSubagents
-              controller={view}
-              navigate={(id) => navigateToSessionTarget(api, id)}
-              modelLine={(child, width) => formatChildModelLine(child, api.state.provider, width)}
-              registerListKeys={({ onKeyDown }) => useKeyboard(onKeyDown)}
-              sessionID={sessionID}
-              state={state}
-              nowMs={nowMs}
-              expanded={subagentsExpanded}
-              onToggleExpanded={() =>
-                setSubagentsExpandedPreference(!subagentsExpanded())
-              }
-              onSetExpanded={setSubagentsExpandedSilently}
-              onReturnFocus={focusActivePrompt}
-              onToggleListFocus={toggleSidebarListFocus}
-              onNavigateToChild={rememberSidebarChildNavigation}
-              sidebarWidth={() => resolveSidebarWidth(ctx)}
-              theme={ctx.theme.current}
-              restoreFromChild={restoreFromChild}
-            />
-          </Show>
-        );
+        return <SidebarContent ctx={ctx} sessionID={sessionID} />;
       },
       home_bottom(ctx: HomeBottomContext) {
         return <HomeBottomStatus state={state} theme={ctx.theme.current} />;
