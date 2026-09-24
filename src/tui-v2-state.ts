@@ -372,6 +372,15 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     switch (event.type) {
       case "session.deleted":
         item.deleted = true; item.execution = undefined;
+        // Drop payload while preserving the deletion watermark for stale-read rejection.
+        delete item.title;
+        delete item.agent;
+        delete item.model;
+        delete item.usage;
+        delete item.usageCreated;
+        delete item.needsRefresh;
+        delete item.metadataPending;
+        delete item.metadataHintRevision;
         delete current.children[id]; input.cache.invalidate(id); publish(); return;
       case "session.execution.started":
         item.execution = { status: "running", at: event.created }; item.needsRefresh = false; break;
