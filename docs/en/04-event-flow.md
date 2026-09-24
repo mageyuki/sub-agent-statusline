@@ -1,5 +1,13 @@
 # Event flow
 
+## V2 2.0.11: public execution evidence
+
+`src/tui-v2-state.ts` reads typed `event.data`, paginated direct children, active IDs and session/cache metadata from the connected host. Creation alone does not count execution. Execution start clears terminal timing; success/failure/interruption sets the existing done/error presentation. Idle/tool completion is only a refresh hint. Sequence zero is valid; per-session ordering and request generations reject old/duplicate results.
+
+Shutdown interruption may leave an older stored success unchanged: V2 retains the newer observed interruption and stale feedback until fresh evidence resolves it. Failed pages retain known rows and use bounded retries. Cumulative usage replaces input/output totals, never inferring context percentage or adding overlapping cache/reasoning categories. Optional model lookups use the child's location; message cache lookups use its session ID. No V1 event parser, SQLite/log fallback, or saved V1 snapshot is used.
+
+The remaining event shapes/wrapper and fallback details are **V1-only**; the TUI orchestration described there lives in `src/tui-v1.tsx`, not the public bridge.
+
 The plugin converts variable OpenCode events into stable internal state. That conversion happens mostly in `src/events.ts`, then flows through `src/state.ts` and `src/render.ts`.
 
 Core rule:
@@ -281,7 +289,7 @@ This matters for synchronous flows where the real session is not exposed immedia
 
 The TUI does not depend only on live events.
 
-When navigating to a session, `src/tui.tsx` tries to hydrate previous subagents by querying OpenCode APIs for:
+When navigating to a session, `src/tui-v1.tsx` tries to hydrate previous subagents by querying OpenCode APIs for:
 
 - child sessions;
 - messages;
@@ -357,6 +365,6 @@ Show in TUI or status.txt
 | `src/state.ts` | Mutations, counters, and persistence. |
 | `src/reconcile.ts` | Normalization and conservative closure. |
 | `src/render.ts` | Final collapse and visibility. |
-| `src/tui.tsx` | Event subscriptions, hydration, and periodic maintenance. |
+| `src/tui-v1.tsx` | V1 event subscriptions, hydration, and periodic maintenance. |
 | `src/events.test.ts` | Event and correlation cases. |
 | `src/reconcile.test.ts` | Fail-closed and stale-running cases. |

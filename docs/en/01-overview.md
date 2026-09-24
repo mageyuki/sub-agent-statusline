@@ -1,5 +1,13 @@
 # Overview
 
+## V1 and V2 scope
+
+The same root and `/tui` entry lazily select the host adapter, preserving ID `subagent-statusline.tui`. V1 support remains `>=1.14.50 <2` (qualification targets 1.14.50 and 1.18.29); the V2 target is **2.0.11**, not every V2 release. `/runtime` is experimental and V1-only.
+
+V2 keeps the sidebar/home summary and focused-list controls. Its public child-execution data supplies cumulative **input + output usage**, optional summaries/model data, and interruption/freshness feedback; it does not infer context occupancy or scrape V1 SQLite/logs. Snapshots keep the existing format/retention but default to a `v2` subdirectory. See [installation](02-installation-and-usage.md) for V2 `cli.json` and local-directory registration.
+
+The detailed legacy event/wrapper pipeline below describes **V1**. Its integration now lives in `src/tui-v1.tsx`, while presentation is shared in `src/tui-view.tsx`; `src/tui.tsx` is only the lazy public bridge.
+
 `opencode-subagent-statusline` is an OpenCode TUI plugin that shows subagent activity inside the interface: running subagents, completed subagents, failures, elapsed time, and token/context usage when OpenCode exposes that information.
 
 The core idea is simple:
@@ -52,7 +60,7 @@ OpenCode event
   -> src/events.ts
   -> src/state.ts
   -> src/render.ts
-  -> src/tui.tsx or src/index.ts
+  -> src/tui-v1.tsx (via the public bridge) or src/index.ts
   -> sidebar / home footer / status.txt
 ```
 
@@ -71,7 +79,7 @@ Step by step:
    - `src/render.ts` collapses duplicates, filters old rows, and builds aggregate text.
 
 5. **The TUI displays the information**
-   - `src/tui.tsx` registers slots, commands, navigation, hydration, and reconciliation.
+   - `src/tui-v1.tsx` registers V1 slots, commands, navigation, hydration, and reconciliation.
 
 ## Key concept: not every event is a real execution
 
@@ -119,7 +127,7 @@ The deterministic core has strong test coverage for:
 - basic command/keybinding registration;
 - runtime plugin persistence.
 
-The current boundary is the full visual UI inside the OpenCode/OpenTUI host: deep TUI E2E automation does not exist yet. For visual changes, the project recommends manual OpenCode smoke tests in addition to automated tests.
+Native tests cover shared rendering and adapter lifecycle behavior. Actual packed-host interactions are qualified separately in isolated OpenCode instances; they are not part of ordinary unit CI. Synthetic qualification does not replace genuine execution acceptance in the user's normal TUI.
 
 ## Next reading
 

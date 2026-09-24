@@ -1,5 +1,19 @@
 # Arquitectura
 
+## Entrada dual y vista compartida
+
+```txt
+raíz / tui -> dist/tui.js (src/tui.tsx, sin runtime del host incorporado)
+  tui(api, options, meta) -> carga diferida tui-v1.js -> eventos/fallback V1
+  setup(context)         -> carga diferida tui-v2.js -> ejecuciones/cache públicos V2
+                              ambos -> tui-view.tsx + helpers state/render
+runtime -> dist/index.js (experimental, exclusivo de V1)
+```
+
+El puente nunca prueba el otro host si falla la inicialización. Los adaptadores se compilan por separado y dejan externos la API, tema, Solid y OpenTUI del host. `@opencode/client` solo aporta tipos. El build limpia una vez antes de las configuraciones paralelas y empaqueta todas las referencias relativas de código/tipos. Cada setup V2 posee foco, generaciones de lecturas y snapshots serializados; cleanup invalida trabajo pendiente y espera al escritor. Se mapean ocho roles de tema, con `backgroundPanel` y `backgroundElement` distintos; storage guarda solo `{ enabled, expanded }`.
+
+El pipeline y los detalles siguientes describen **V1**, ahora en `src/tui-v1.tsx` con presentación compartida en `src/tui-view.tsx`.
+
 El plugin está organizado alrededor de un pipeline: recibir eventos de OpenCode, normalizarlos como estado interno, deduplicar representaciones técnicas y renderizar una vista útil para la TUI.
 
 ```txt
@@ -15,7 +29,7 @@ src/state.ts
 src/render.ts
         ↓
 ┌──────────────────────┬──────────────────────┐
-│ src/tui.tsx          │ src/index.ts          │
+│ src/tui-v1.tsx       │ src/index.ts          │
 │ Plugin TUI principal │ Plugin runtime        │
 │ Sidebar / footer     │ state.json/status.txt │
 └──────────────────────┴──────────────────────┘
@@ -25,7 +39,10 @@ src/render.ts
 
 | Archivo                          | Responsabilidad                                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `src/tui.tsx`                    | Plugin TUI principal: slots, sidebar, footer, hidratación, reconciliación, navegación y ciclo de vida. |
+| `src/tui.tsx` | Puente público diferido sin runtime del host. |
+| `src/tui-v1.tsx` | Slots, hidratación, fallback, navegación y ciclo de vida V1. |
+| `src/tui-v2.tsx` | Slots, datos tipados, keymap/foco y cleanup propio V2. |
+| `src/tui-view.tsx` | Presentación sidebar/inicio y controlador compartidos. |
 | `src/index.ts`                   | Plugin runtime/file-based: escucha eventos, persiste estado y escribe `status.txt`.                    |
 | `src/events.ts`                  | Convierte eventos de OpenCode en mutaciones del estado interno.                                        |
 | `src/state.ts`                   | Define el modelo de datos, contadores, persistencia y helpers de mutación.                             |
@@ -39,7 +56,7 @@ src/render.ts
 
 ### TUI plugin
 
-Fuente: `src/tui.tsx`
+Fuente pública: `src/tui.tsx`; las responsabilidades legacy siguientes pertenecen a `src/tui-v1.tsx` y la vista compartida `src/tui-view.tsx`, no al puente.
 
 Es el entrypoint principal del paquete:
 
@@ -77,7 +94,7 @@ Este modo es más bajo nivel. No renderiza la sidebar TUI. En cambio:
 3. guarda `state.json`;
 4. escribe `status.txt` con el render textual.
 
-Es útil para entender el núcleo del proyecto porque usa el mismo pipeline de eventos, estado y renderizado, pero sin la capa visual de `src/tui.tsx`.
+Es útil para entender el núcleo V1 del proyecto porque usa el mismo pipeline de eventos, estado y renderizado, pero sin la capa visual de `src/tui-view.tsx`.
 
 ## Modelo interno
 
@@ -183,7 +200,7 @@ Esto explica por qué puede haber más children en el estado que filas visibles 
 
 ## TUI runtime
 
-`src/tui.tsx` es el módulo más grande porque combina varias responsabilidades de integración con OpenCode.
+`src/tui-v1.tsx` reúne la integración legacy; la presentación compartida está en `src/tui-view.tsx`.
 
 Responsabilidades principales:
 
@@ -285,7 +302,7 @@ Los tests no son solo verificación; también documentan decisiones de diseño.
 | `src/tui.test.ts`                | Registro de comandos/keybindings.                            |
 | `test/index.integration.test.ts` | Runtime plugin, archivos de estado y tolerancia a errores.   |
 
-Límite actual: la UI visual completa de `src/tui.tsx` no tiene E2E profundo contra el host OpenCode/OpenTUI.
+Límite de validación: los tests nativos ejercitan la vista compartida y el ciclo de vida de los adaptadores, incluido el ownership del slot V1. Carga del paquete, prioridad de teclado, navegación y cleanup se validan por separado en hosts reales; los tests de source no bastan para demostrar compatibilidad.
 
 ## Archivos de configuración relevantes
 

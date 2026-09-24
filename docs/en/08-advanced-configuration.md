@@ -1,5 +1,13 @@
 # Advanced configuration
 
+## Host applicability
+
+V2 **2.0.11** uses global `cli.json` and its `plugins` array, with schema `https://opencode.ai/v2/cli.json`; see [installation](02-installation-and-usage.md) for additive registration, restrictive backup/rollback and the local directory directly containing `tui.js`. V1 retains `tui.json` (`>=1.14.50 <2`). `/runtime` remains experimental and **V1-only**.
+
+Default V2 snapshots are `$XDG_RUNTIME_DIR/opencode-subagent-statusline/<instance>/v2/state.json` (system temp if unset), with adjacent `status.txt`. Schema and 3-day/1,500-terminal-row retention are unchanged; active children are not capped. `OPENCODE_SUBAGENT_STATUSLINE_STATE` is an exact-path override: do not share it across concurrent writers. Titles/summaries may contain task text; V2 persists no raw events, messages, tool output, credentials or exception bodies, and does not import old V1 snapshots.
+
+The DB, `DEBUG_EVENTS`, `STALE_RUNNING_MS`, SQLite/log and stale-fallback descriptions below apply to the **V1 TUI**; `PRESERVE_STATE` is **V1 runtime startup behavior**. They are not V2 scraping or recovery options. V2 uses only public connected-host data, including remote hosts. Its host storage holds `{ enabled, expanded }`, not child history. `STATE`, `INSTANCE`, `XDG_RUNTIME_DIR` and text color controls retain their shared path/text meanings. The remaining `tui.json` examples and legacy integration table describe V1.
+
 Normal plugin configuration is minimal: add it to OpenCode's `tui.json`. This page documents advanced options for development, diagnostics, debugging, and the runtime file-based mode.
 
 If you only want to use the plugin, you probably do not need to change anything here.
@@ -287,7 +295,7 @@ If docs should ship in the npm package later:
 | File | What to inspect |
 | --- | --- |
 | `src/state.ts` | Paths, persistence, and state env vars. |
-| `src/tui.tsx` | Debug events, DB lookup, hydration, stale threshold. |
+| `src/tui-v1.tsx` | V1 debug events, DB lookup, hydration, stale threshold. |
 | `src/index.ts` | Runtime file-based plugin. |
 | `src/render.ts` | Color and text rendering. |
 | `package.json` | Exports, published files, and peer dependencies. |

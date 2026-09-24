@@ -37,8 +37,42 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Typecheck tests
+        run: pnpm exec tsc --noEmit -p tsconfig.test.json
+
+      - name: Verify built package graph
+        run: pnpm test:package
+
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level moderate
 
       - name: Verify package contents
         run: pnpm pack --dry-run
+
+  native-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.4.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify native FFI availability
+        run: node --experimental-ffi --input-type=module -e "await import('node:ffi')"
+      - name: Run full native suite
+        run: node --experimental-ffi node_modules/vitest/vitest.mjs run --execArgv=--experimental-ffi --reporter=default --reporter=json --outputFile.json=native-results.json
+      - name: Require zero native-lane skips
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          const report = JSON.parse(await readFile('native-results.json', 'utf8'));
+          assert.equal(report.success, true);
+          assert.ok(report.numTotalTests > 0);
+          assert.equal(report.numPendingTests, 0);
+          assert.equal(report.numTodoTests ?? 0, 0);
+          NODE

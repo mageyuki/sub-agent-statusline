@@ -1,5 +1,13 @@
 # Configuración avanzada
 
+## Aplicabilidad por host
+
+V2 **2.0.11** usa `cli.json` global y su array `plugins`, con esquema `https://opencode.ai/v2/cli.json`; consultá [instalación](02-instalacion-y-uso.md) para registro aditivo, backup/rollback restrictivo y el directorio local que contiene directamente `tui.js`. V1 conserva `tui.json` (`>=1.14.50 <2`). `/runtime` sigue experimental y **exclusivo de V1**.
+
+V2 guarda por defecto `$XDG_RUNTIME_DIR/opencode-subagent-statusline/<instance>/v2/state.json` (temp del sistema si falta), junto a `status.txt`. Conserva esquema y retención de 3 días/1.500 filas terminales, sin limitar hijos activos. `OPENCODE_SUBAGENT_STATUSLINE_STATE` es un override exacto: no lo compartas entre escritores concurrentes. Títulos/resúmenes pueden contener texto de tareas; V2 no persiste eventos crudos, mensajes, salidas de herramientas, credenciales ni excepciones completas, y no importa snapshots V1.
+
+Las opciones DB, `DEBUG_EVENTS`, `STALE_RUNNING_MS`, SQLite/logs y fallback de estado viejo que siguen corresponden a la **TUI V1**; `PRESERVE_STATE` es comportamiento de inicio del **runtime V1**. No son opciones de scraping/recuperación V2. V2 usa solo datos públicos del host conectado, incluso remoto. Su storage guarda `{ enabled, expanded }`, no historial de hijos. `STATE`, `INSTANCE`, `XDG_RUNTIME_DIR` y controles de color conservan sus significados compartidos de rutas/texto. Los ejemplos `tui.json` y la tabla legacy siguientes describen V1.
+
 La configuración normal del plugin es mínima: agregarlo al `tui.json` de OpenCode. Esta página documenta opciones avanzadas para desarrollo, diagnóstico, debugging y runtime file-based.
 
 Si solo querés usar el plugin, probablemente no necesitás tocar nada de esto.
@@ -296,7 +304,7 @@ Cuando algo no funciona:
 | Archivo         | Qué mirar                                                |
 | --------------- | -------------------------------------------------------- |
 | `src/state.ts`  | Resolución de rutas, persistencia y variables de estado. |
-| `src/tui.tsx`   | Debug events, DB lookup, hydration, stale threshold.     |
+| `src/tui-v1.tsx` | Debug events, DB lookup, hydration, stale threshold V1. |
 | `src/index.ts`  | Runtime plugin file-based.                               |
 | `src/render.ts` | Color y render textual.                                  |
 | `package.json`  | Exports, files publicados y peer dependencies.           |

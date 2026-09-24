@@ -1,5 +1,13 @@
 # Visión general
 
+## Alcance V1 y V2
+
+La misma entrada raíz y `/tui` carga de forma diferida el adaptador del host, conservando el ID `subagent-statusline.tui`. El soporte V1 sigue siendo `>=1.14.50 <2` (objetivos de validación: 1.14.50 y 1.18.29); el objetivo V2 es **2.0.11**, no cualquier versión V2. `/runtime` es experimental y exclusivo de V1.
+
+V2 mantiene la sidebar, el resumen de inicio y los controles de la lista enfocada. Usa ejecuciones hijas públicas para mostrar **uso acumulado de entrada + salida**, metadatos opcionales de resumen/modelo y avisos de interrupción/frescura. No infiere ocupación del contexto ni lee SQLite/logs de V1. Los snapshots conservan formato y retención, con un subdirectorio `v2` por defecto. Consultá [instalación](02-instalacion-y-uso.md) para `cli.json` y el registro local por directorio.
+
+El pipeline detallado de eventos/wrappers que sigue describe **V1**. La integración ahora está en `src/tui-v1.tsx` y la presentación compartida en `src/tui-view.tsx`; `src/tui.tsx` es solo el puente público diferido.
+
 `opencode-subagent-statusline` es un plugin TUI para OpenCode que muestra actividad de subagentes dentro de la interfaz: subagentes corriendo, finalizados, fallidos, duración y uso de tokens/contexto cuando OpenCode expone esa información.
 
 La idea central es simple:
@@ -54,7 +62,7 @@ OpenCode event
   -> src/events.ts
   -> src/state.ts
   -> src/render.ts
-  -> src/tui.tsx o src/index.ts
+  -> src/tui-v1.tsx (mediante el puente público) o src/index.ts
   -> sidebar / home footer / status.txt
 ```
 
@@ -73,7 +81,7 @@ Paso por paso:
    - `src/render.ts` colapsa duplicados, filtra filas antiguas y arma textos agregados.
 
 5. **La TUI muestra la información**
-   - `src/tui.tsx` registra slots, comandos, navegación, hidratación y reconciliación.
+   - `src/tui-v1.tsx` registra slots, comandos, navegación, hidratación y reconciliación de V1.
 
 ## Concepto clave: no todo evento es una ejecución real
 
@@ -121,7 +129,7 @@ El núcleo determinístico tiene buena cobertura de tests:
 - comandos/keybindings básicos;
 - persistencia del runtime plugin.
 
-El límite actual es la UI visual completa dentro del host OpenCode/OpenTUI: no hay automatización E2E profunda de la TUI. Para cambios visuales, el proyecto recomienda smoke tests manuales además de los tests automatizados.
+Los tests nativos cubren render compartido y ciclo de vida de los adaptadores. La interacción del paquete real se valida por separado en instancias OpenCode aisladas, fuera del CI unitario normal. La validación sintética no sustituye la aceptación de ejecución genuina en la TUI habitual del usuario.
 
 ## Dónde seguir
 

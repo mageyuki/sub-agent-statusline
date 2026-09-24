@@ -1,5 +1,13 @@
 # Interfaz TUI
 
+## Diferencias en V2 2.0.11
+
+V2 agrega la misma vista compartida en `sidebar.content` y `home.footer.status`. Una contribución propia en `app` registra los tres comandos de paleta existentes; los comandos de teclado en modo base apuntan a la lista del monitor, no a un panel alternativo. V2 no envuelve prompts privados. El foco desde la paleta espera el cambio modal→base; Esc/Alt+B vuelve solo a un editor vivo de la misma ruta. Volver al padre (`session.parent`) deja listo el prompt nuevo para escribir, sin reenfocar la lista.
+
+Se conservan como interacción prevista los atajos sin modificadores, mouse, `c`/`Σ`, scroll, colapso y expansión. Diálogos, listas ocultas/desmontadas y navegación modificada no deben capturar entrada del host; `Alt/Option+Left` sigue siendo del host. Esto requiere validación real, no solo tests nativos. Las preferencias son el objeto pequeño `{ enabled, expanded }`; la visibilidad del historial no se persiste. El uso V2 es entrada + salida, no ocupación del contexto. `Interrumpido`/`El estado puede estar desactualizado` explican incertidumbre sin agregar estados.
+
+Los nombres de slots, wrappers de prompt, hidratación y mantenimiento legacy que siguen son **V1-only** (`src/tui-v1.tsx`). Para V2 local registrá el directorio que contiene `tui.js`, como indica [instalación](02-instalacion-y-uso.md), no el archivo directo del ejemplo V1.
+
 La interfaz principal del plugin es una sección en la sidebar de OpenCode. Su objetivo es mostrar actividad de subagentes sin obligarte a salir del flujo de trabajo actual.
 
 ## Superficies visuales
@@ -235,7 +243,7 @@ La reconciliación es conservadora. No cierra filas viejas solo porque pasó tie
 
 La documentación y los tests cubren bien la lógica que alimenta la UI, pero hay un límite importante:
 
-> No hay automatización E2E profunda de la UI visual completa dentro del host OpenCode/OpenTUI.
+> Se prueban lógica de estado/render/comandos y ciclo de vida nativo de los adaptadores. La interacción del paquete real se valida por separado; ni la cobertura unitaria ni la validación sintética certifican ejecución genuina en la TUI habitual del usuario.
 
 Lo que sí está cubierto automáticamente:
 
@@ -244,7 +252,7 @@ Lo que sí está cubierto automáticamente:
 - keybinding `Alt+B`;
 - lógica de estado/render/reconcile que alimenta la UI.
 
-Para cambios visuales o de interacción completa, se recomienda hacer smoke test manual en OpenCode.
+Para cambios visuales/de entrada, ejecutá también la matriz aislada de hosts reales de la [guía de desarrollo](09-desarrollo-y-testing.md). El checklist manual V1 siguiente es un complemento útil.
 
 ## Smoke test manual sugerido
 
@@ -270,7 +278,8 @@ Para validar la TUI después de cambios:
 
 | Archivo               | Qué mirar                                     |
 | --------------------- | --------------------------------------------- |
-| `src/tui.tsx`         | UI, slots, hydration, reconcile y navegación. |
+| `src/tui-v1.tsx` | Slots, hydration, reconcile y navegación V1. |
+| `src/tui-view.tsx` | UI compartida de sidebar/inicio, selección y scroll. |
 | `src/tui-commands.ts` | Comandos y keybindings.                       |
 | `src/render.ts`       | Filas visibles y deduplicación previa a UI.   |
 | `src/tui.test.ts`     | Tests de registro de comandos.                |

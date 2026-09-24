@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { createRequire } from "node:module";
 import { solidPlugin } from "esbuild-plugin-solid";
 
@@ -28,10 +28,11 @@ export default defineConfig({
   }],
   test: {
     environment: "node",
-    forbidOnly: true,
+    allowOnly: false,
     globals: true,
     setupFiles: ["./test/setup.ts"],
     include: ["src/**/*.test.ts", "test/**/*.integration.test.ts"],
+    exclude: [...configDefaults.exclude, "test/package.integration.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

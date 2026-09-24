@@ -573,7 +573,7 @@ describe("V2 bounded reads and generations", () => {
     expect(f.list).toHaveBeenCalledTimes(2);
     await Promise.all(Array.from({ length: 20 }, (_, i) => f.monitor.accept({
       type: "session.status", id: `hint_${i}`, created: T0 + i,
-      data: { sessionID: "ses_child", status: { type: "running" } },
+      data: { sessionID: "ses_child", status: { type: "busy" } },
     })));
     await vi.advanceTimersByTimeAsync(999); expect(f.list).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1); expect(f.list).toHaveBeenCalledTimes(3);
