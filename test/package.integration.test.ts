@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -120,6 +120,55 @@ it("imports the real packed bridge in a host-free process", async () => {
     console.log(JSON.stringify({ id: plugin.id, tui: typeof plugin.tui, setup: typeof plugin.setup }));
   `], { cwd: scratch, env: { ...process.env, NODE_PATH: "" } });
   expect(JSON.parse(stdout)).toEqual({ id: "subagent-statusline.tui", tui: "function", setup: "function" });
+});
+
+it("typechecks both packed public entries and their returns without either optional host family", async () => {
+  const consumer = join(scratch, "strict-consumer");
+  const modules = join(consumer, "node_modules");
+  await mkdir(modules, { recursive: true });
+  // A physical package copy avoids resolving symlinks back into this project's
+  // node_modules, where both optional hosts would hide declaration leaks.
+  await cp(packedRoot, join(modules, "opencode-subagent-statusline"), { recursive: true });
+  expect(await readdir(modules)).toEqual(["opencode-subagent-statusline"]);
+  await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  await writeFile(join(consumer, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext",
+      strict: true, skipLibCheck: false, noEmit: true, types: [],
+    },
+    files: ["consumer.ts"],
+  }));
+  await writeFile(join(consumer, "consumer.ts"), `
+    import root from "opencode-subagent-statusline";
+    import tui from "opencode-subagent-statusline/tui";
+
+    // The public loader boundary transports opaque host-provided arguments.
+    // Checking each return also catches an optional host leaking via Cleanup.
+    async function consume() {
+      for (const entry of [root, tui]) {
+        const id: string = entry.id;
+        const initialized: void = await entry.tui({}, undefined, {});
+        const cleanup: void | (() => void | Promise<void>) = await entry.setup({});
+        if (cleanup) {
+          const disposed: void = await cleanup();
+          void disposed;
+        }
+        void id;
+        void initialized;
+      }
+    }
+    void consume;
+  `);
+  const compiler = fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
+  const result = await exec(process.execPath, [compiler, "-p", join(consumer, "tsconfig.json"), "--pretty", "false"], {
+    cwd: consumer, env: { ...process.env, NODE_PATH: "" },
+  }).then(
+    ({ stdout, stderr }) => ({ passed: true, output: stdout + stderr }),
+    (error: unknown) => ({ passed: false, output: error instanceof Error ? [
+      error.message, "stdout" in error ? String(error.stdout) : "", "stderr" in error ? String(error.stderr) : "",
+    ].join("\n") : String(error) }),
+  );
+  expect(result.passed, result.output).toBe(true);
 });
 
 it("keeps the bridge static graph host-free and ships both lazy import targets", async () => {
