@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeyEvent, TextareaRenderable, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core";
 import v2Plugin from "../src/tui-v2.js";
+import { V2_FOCUS_MAX_ATTEMPTS, V2_FOCUS_RETRY_DELAY_MS, V2_HISTORY_PAGE_SIZE } from "../src/internal-policy.js";
 import { createV2ContextHarness, hasNativeFFI, invokeV2KeyboardCommand } from "./helpers/v2-context.js";
 import { childInfo, deferred, deleted, header, shutdown, started, T0 } from "./helpers/v2-fixtures.js";
+const focusDeadlineMs = V2_FOCUS_MAX_ATTEMPTS * V2_FOCUS_RETRY_DELAY_MS;
 
 vi.mock("node:fs/promises", async importOriginal => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -140,13 +142,13 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
       expect(() => request.run()).not.toThrow();
     } else {
       host.setMode("modal"); request.run();
-      await vi.advanceTimersByTimeAsync(299);
+      await vi.advanceTimersByTimeAsync(focusDeadlineMs - 1);
       expect(host.toast).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
     }
     expect(host.toast).toHaveBeenCalledOnce();
     expect(host.toast).toHaveBeenLastCalledWith({ message: "Subagent list unavailable", variant: "info" });
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(2 * focusDeadlineMs);
     expect(host.toast).toHaveBeenCalledOnce();
 
     // A fresh user request still gets one feedback attempt, not lifetime suppression.
@@ -156,7 +158,7 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
     host.setSidebar(true); host.setMode("modal"); request.run();
     await cleanup();
     request.run();
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(focusDeadlineMs);
     expect(host.toast).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(host.toast.mock.calls)).not.toContain("PRIVATE");
     vi.useRealTimers();
@@ -169,10 +171,10 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
     host.setMode("modal"); altB(host);
     expect(host.renderer.currentFocusedEditor).toBe(dialog);
     vi.useFakeTimers(); command(host, "focus-sidebar-list").run();
-    await vi.advanceTimersByTimeAsync(60);
+    await vi.advanceTimersByTimeAsync(2 * V2_FOCUS_RETRY_DELAY_MS);
     expect(host.renderer.currentFocusedEditor).toBe(dialog);
     host.setMode("base"); dialog.destroy(); host.prompt.focus();
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(V2_FOCUS_RETRY_DELAY_MS);
     expect(list(host)?.focused).toBe(true);
     expect(list(host)?.backgroundColor).toEqual(host.context.theme.background.raised.base);
     const focusSpy = vi.spyOn(host.prompt, "focus");
@@ -358,7 +360,7 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
     vi.useFakeTimers();
     command(host, "focus-sidebar-list").run();
     host.setSidebar(false); host.setSidebar(true);
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(focusDeadlineMs);
     expect(host.renderer.currentFocusedEditor).toBe(host.prompt);
     expect(list(host)?.focused).toBe(false);
     vi.useRealTimers();
@@ -394,7 +396,7 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
     host.reads.list.mockClear();
     host.emit({ id: "evt_connection", type: "server.connected", data: {} });
     await host.flush();
-    expect(host.reads.list).toHaveBeenCalledWith({ parentID: "ses_other", limit: 100, cursor: undefined });
+    expect(host.reads.list).toHaveBeenCalledWith({ parentID: "ses_other", limit: V2_HISTORY_PAGE_SIZE, cursor: undefined });
     host.setRoute({ type: "session", sessionID: "ses_parent" }); await host.flush();
     const intervals = vi.spyOn(globalThis, "setInterval"), cleared = vi.spyOn(globalThis, "clearInterval");
     host.emit(shutdown(20, Date.now())); await Promise.resolve();

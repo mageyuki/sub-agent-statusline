@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BoxRenderable, CliRenderer } from "@opentui/core";
 import type { SidebarViewController } from "./tui-view.js";
 import { createV2SidebarFocus } from "./tui-v2-focus.js";
+import { V2_FOCUS_MAX_ATTEMPTS, V2_FOCUS_RETRY_DELAY_MS } from "./internal-policy.js";
 
 function fixture() {
   let route = "ses_parent", mode = "base", mounted = true, focused = false;
@@ -73,10 +74,12 @@ describe("V2 public focus ownership", () => {
     const f = fixture();
     const normal = { ...f.prompt, focus: vi.fn() };
     f.mode("modal"); f.focus.request("palette");
-    await vi.advanceTimersByTimeAsync(60);
+    await vi.advanceTimersByTimeAsync(2 * V2_FOCUS_RETRY_DELAY_MS);
     expect(f.view.focusList).not.toHaveBeenCalled();
     f.mode("base"); f.renderer.currentFocusedEditor = normal;
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(V2_FOCUS_RETRY_DELAY_MS - 1);
+    expect(f.view.focusList).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(f.view.focusList).toHaveBeenCalledOnce();
     f.focus.leave();
     expect(normal.focus).toHaveBeenCalledOnce();
@@ -85,14 +88,17 @@ describe("V2 public focus ownership", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("bounds unavailable palette work to ten nonzero attempts with one feedback", async () => {
+  it("bounds unavailable palette work with one feedback", async () => {
     vi.useFakeTimers();
     const f = fixture(); f.mode("modal"); f.focus.request("palette");
-    await vi.advanceTimersByTimeAsync(299);
+    const deadline = V2_FOCUS_MAX_ATTEMPTS * V2_FOCUS_RETRY_DELAY_MS;
+    await vi.advanceTimersByTimeAsync(deadline - 1);
     expect(f.unavailable).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(f.unavailable).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(V2_FOCUS_RETRY_DELAY_MS);
+    expect(f.unavailable).toHaveBeenCalledOnce();
     expect(f.view.focusList).not.toHaveBeenCalled();
     f.focus.dispose();
   });
@@ -100,11 +106,11 @@ describe("V2 public focus ownership", () => {
   it("does not capture the known modal editor while base mode precedes focus restoration", async () => {
     vi.useFakeTimers();
     const f = fixture(); f.mode("modal"); f.focus.request("palette");
-    f.mode("base"); await vi.advanceTimersByTimeAsync(30);
+    f.mode("base"); await vi.advanceTimersByTimeAsync(V2_FOCUS_RETRY_DELAY_MS);
     expect(f.view.focusList).not.toHaveBeenCalled();
     const normal = { ...f.prompt, focus: vi.fn() };
     f.renderer.currentFocusedEditor = normal;
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(V2_FOCUS_RETRY_DELAY_MS);
     expect(f.view.focusList).toHaveBeenCalledOnce();
     f.focus.leave(); expect(normal.focus).toHaveBeenCalledOnce();
     expect(f.prompt.focus).not.toHaveBeenCalled();

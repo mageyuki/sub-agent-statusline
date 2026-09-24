@@ -6,6 +6,8 @@ import {
   type ChildTokenState, type StatuslineState,
 } from "./state.js";
 import { nextBackoffState, type RunningReconcileCacheEntry } from "./reconcile.js";
+import { V2_DETAIL_CONCURRENCY, V2_HISTORY_PAGE_SIZE, V2_RETRY_INITIAL_DELAY_MS,
+  V2_RETRY_MAX_ATTEMPTS, V2_RETRY_MAX_DELAY_MS } from "./internal-policy.js";
 
 export interface V2MonitorInput {
   session: Pick<Context["client"]["session"], "list" | "get" | "active">;
@@ -115,8 +117,8 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     clearTimeout(hintTimer); hintTimer = undefined;
   }
   function scheduleRetry() {
-    if (disposed || retryTimer || retries >= 6) return;
-    backoff = nextBackoffState({ cache: backoff, nowMs: Date.now(), initialBackoffMs: 1_000, maxBackoffMs: 30_000 });
+    if (disposed || retryTimer || retries >= V2_RETRY_MAX_ATTEMPTS) return;
+    backoff = nextBackoffState({ cache: backoff, nowMs: Date.now(), initialBackoffMs: V2_RETRY_INITIAL_DELAY_MS, maxBackoffMs: V2_RETRY_MAX_DELAY_MS });
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
       retries++;
@@ -132,10 +134,10 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     scheduleRetry();
   }
 
-  // Both active discovery and event identity resolution share this four-read bound.
+  // Both active discovery and event identity resolution share this detail-read bound.
   async function detail(id: string, valid: () => boolean): Promise<SessionInfo | undefined> {
     if (!valid()) return undefined;
-    if (detailsInFlight >= 4) {
+    if (detailsInFlight >= V2_DETAIL_CONCURRENCY) {
       // A grant transfers an already-counted permit, including across invalid
       // waiters. Disposal wakes ungranted waiters without giving them ownership.
       if (!await new Promise<boolean>(resolve => detailQueue.push(resolve))) return undefined;
@@ -246,7 +248,7 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
           !item.deleted && !item.retired && item.execution &&
           (!current.children[id] || (!selectedParent && item.metadataPending))).map(([id]) => id)])];
         let offset = 0;
-        await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
+        await Promise.all(Array.from({ length: Math.min(V2_DETAIL_CONCURRENCY, ids.length) }, async () => {
           while (offset < ids.length && valid()) {
             const id = ids[offset++];
             const unchanged = () => {
@@ -275,7 +277,7 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
         let cursor: string | undefined;
         const cursors = new Set<string>();
         do {
-          const page = await input.session.list({ parentID: selectedParent, limit: 100, cursor });
+          const page = await input.session.list({ parentID: selectedParent, limit: V2_HISTORY_PAGE_SIZE, cursor });
           if (!valid()) return;
           for (const info of page.data) {
             if (info.parentID === selectedParent) hydrate(info, activeIDs.has(info.id), readRevision, readRevision);

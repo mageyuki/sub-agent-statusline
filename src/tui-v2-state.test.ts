@@ -2,6 +2,9 @@ import type { SessionInfo, SessionListOutput, SessionActiveOutput, SessionMessag
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createV2Monitor, type V2Monitor, type V2MonitorInput } from "./tui-v2-state.js";
 import { countRetainedSubagentStatuses } from "./state.js";
+import { MAX_TERMINAL_CHILDREN, TERMINAL_CHILD_TTL_MS, V2_DETAIL_CONCURRENCY,
+  V2_HISTORY_PAGE_SIZE, V2_RETRY_INITIAL_DELAY_MS, V2_RETRY_MAX_ATTEMPTS,
+  V2_RETRY_MAX_DELAY_MS } from "./internal-policy.js";
 import { childInfo, deferred, deleted, failed, header, shutdown, started, succeeded, T0, usage } from "../test/helpers/v2-fixtures.js";
 
 const monitors: V2Monitor[] = [];
@@ -518,7 +521,7 @@ describe("V2 independent event and read freshness", () => {
     expect(f.monitor.stale()).toBe(true);
     expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
     const pending = deferred<SessionInfo>(); f.get.mockReturnValueOnce(pending.promise);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_INITIAL_DELAY_MS);
     f.monitor.dispose(); f.onChange.mockClear(); f.onIssue.mockClear();
     pending.resolve(childInfo({ tokens: usage(T0, 20, 2).data.tokens }));
     await vi.runAllTimersAsync();
@@ -594,28 +597,29 @@ describe("V2 bounded reads and generations", () => {
     expect(f.monitor.stale()).toBe(true);
     expect(f.onIssue).toHaveBeenCalledWith("refresh-failed");
     expect(f.list.mock.calls.map(([input]) => input)).toEqual([
-      { parentID: "ses_parent", limit: 100, cursor: undefined },
-      { parentID: "ses_parent", limit: 100, cursor: "page2" },
-      { parentID: "ses_parent", limit: 100, cursor: "page3" },
+      { parentID: "ses_parent", limit: V2_HISTORY_PAGE_SIZE, cursor: undefined },
+      { parentID: "ses_parent", limit: V2_HISTORY_PAGE_SIZE, cursor: "page2" },
+      { parentID: "ses_parent", limit: V2_HISTORY_PAGE_SIZE, cursor: "page3" },
     ]);
     expect(vi.getTimerCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(999); expect(f.list).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_INITIAL_DELAY_MS - 1); expect(f.list).toHaveBeenCalledTimes(3);
   });
 
-  it("limits missing active detail reads to four concurrent calls", async () => {
+  it("limits missing active detail reads to the configured concurrency", async () => {
     const f = monitorFixture(); f.noCache();
-    const waiting = Array.from({ length: 9 }, () => deferred<SessionInfo>());
-    f.active.mockResolvedValue(Object.fromEntries(waiting.map((_, i) => [`ses_${i}`, { type: "running" }])));
-    let inFlight = 0; let max = 0;
-    f.get.mockImplementation(async ({ sessionID }) => {
-      inFlight++; max = Math.max(max, inFlight);
-      const info = await waiting[Number(sessionID.slice(4))].promise; inFlight--; return info;
-    });
+    const ids = Array.from({ length: V2_DETAIL_CONCURRENCY + 1 }, (_, i) => `ses_${i}`);
+    f.active.mockResolvedValue(Object.fromEntries(ids.map(id => [id, { type: "running" }])));
+    const details = controlledDetails(f);
     const refresh = f.monitor.refresh();
-    await vi.waitFor(() => expect(f.get).toHaveBeenCalledTimes(4));
-    waiting.forEach((item, i) => item.resolve(childInfo({ id: `ses_${i}` })));
-    await refresh;
-    expect(max).toBe(4); expect(f.monitor.state().totalExecuted).toBe(9);
+    await Promise.all(ids.slice(0, V2_DETAIL_CONCURRENCY).map(id => details.started(id)));
+    expect(f.get).toHaveBeenCalledTimes(V2_DETAIL_CONCURRENCY);
+    expect(f.get.mock.calls.some(([input]) => input.sessionID === ids[V2_DETAIL_CONCURRENCY])).toBe(false);
+    details.release(ids[0]);
+    await details.started(ids[V2_DETAIL_CONCURRENCY]);
+    expect(details.peak()).toBe(V2_DETAIL_CONCURRENCY);
+    details.finish(); await refresh;
+    expect(details.inFlight()).toBe(0);
+    expect(f.monitor.state().totalExecuted).toBe(ids.length);
   });
 
   it.each([
@@ -623,14 +627,14 @@ describe("V2 bounded reads and generations", () => {
     { arrivingEvent: false, invalidWaiter: true },
     { arrivingEvent: true, invalidWaiter: false },
     { arrivingEvent: true, invalidWaiter: true },
-  ])("shares four detail permits across inventory/events: %j", async ({ arrivingEvent, invalidWaiter }) => {
+  ])("shares configured detail permits across inventory/events: %j", async ({ arrivingEvent, invalidWaiter }) => {
     const f = monitorFixture(); f.noCache();
-    const ids = Array.from({ length: 9 }, (_, i) => `ses_active_${i}`);
+    const ids = Array.from({ length: 2 * V2_DETAIL_CONCURRENCY + 1 }, (_, i) => `ses_active_${i}`);
     f.active.mockResolvedValue(Object.fromEntries(ids.map(id => [id, { type: "running" }])));
     const details = controlledDetails(f);
     const refresh = f.monitor.refresh();
-    await details.started("ses_active_3");
-    expect(details.inFlight()).toBe(4);
+    await Promise.all(ids.slice(0, V2_DETAIL_CONCURRENCY).map(id => details.started(id)));
+    expect(details.inFlight()).toBe(V2_DETAIL_CONCURRENCY);
     const waiter = f.monitor.accept(started(0, T0 + 1_000, "ses_waiter"));
     const next = f.monitor.accept(started(0, T0 + 1_000, "ses_next"));
     if (invalidWaiter) await f.monitor.accept({ ...deleted(1, T0 + 2_000),
@@ -638,30 +642,32 @@ describe("V2 bounded reads and generations", () => {
     // Register after detail() is awaiting this exact SDK promise. This delivers an
     // event between release of a permit and resumption of the queued waiter.
     const arriving = arrivingEvent
-      ? details.result("ses_active_0").then(() => f.monitor.accept(started(0, T0 + 3_000, "ses_arriving")))
+      ? details.result(ids[0]).then(() => f.monitor.accept(started(0, T0 + 3_000, "ses_arriving")))
       : Promise.resolve();
-    details.release("ses_active_0");
+    details.release(ids[0]);
     await details.started(invalidWaiter ? "ses_next" : "ses_waiter");
     details.finish();
     await Promise.all([refresh, waiter, next, arriving]);
-    expect(details.peak()).toBe(4);
+    expect(details.peak()).toBe(V2_DETAIL_CONCURRENCY);
     expect(details.inFlight()).toBe(0);
     expect(f.get.mock.calls.some(([input]) => input.sessionID === "ses_waiter")).toBe(!invalidWaiter);
     expect(f.monitor.state().children.ses_next.status).toBe("running");
-    expect(f.monitor.state().children.ses_active_8.status).toBe("running");
-    expect(f.monitor.state().totalExecuted).toBe(11 + Number(arrivingEvent) - Number(invalidWaiter));
+    expect(f.monitor.state().children[ids[ids.length - 1]].status).toBe("running");
+    expect(f.monitor.state().totalExecuted).toBe(ids.length + 2 + Number(arrivingEvent) - Number(invalidWaiter));
   });
 
   it("disposal invalidates queued event waiters without starting more inventory details", async () => {
     const f = monitorFixture(); f.noCache();
-    f.active.mockResolvedValue(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`ses_active_${i}`, { type: "running" }])));
+    const ids = Array.from({ length: 2 * V2_DETAIL_CONCURRENCY + 1 }, (_, i) => `ses_active_${i}`);
+    f.active.mockResolvedValue(Object.fromEntries(ids.map(id => [id, { type: "running" }])));
     const details = controlledDetails(f);
-    const refresh = f.monitor.refresh(); await details.started("ses_active_3");
+    const refresh = f.monitor.refresh();
+    await Promise.all(ids.slice(0, V2_DETAIL_CONCURRENCY).map(id => details.started(id)));
     const waiter = f.monitor.accept(started(0, T0, "ses_waiter"));
     f.monitor.dispose(); f.onChange.mockClear(); f.onIssue.mockClear();
     details.finish(); await Promise.all([refresh, waiter]);
-    expect(f.get).toHaveBeenCalledTimes(4);
-    expect(details.peak()).toBe(4); expect(details.inFlight()).toBe(0);
+    expect(f.get).toHaveBeenCalledTimes(V2_DETAIL_CONCURRENCY);
+    expect(details.peak()).toBe(V2_DETAIL_CONCURRENCY); expect(details.inFlight()).toBe(0);
     expect(f.onChange).not.toHaveBeenCalled(); expect(f.onIssue).not.toHaveBeenCalled();
   });
 
@@ -669,23 +675,26 @@ describe("V2 bounded reads and generations", () => {
     const f = monitorFixture(); f.noCache();
     const activeMap = (prefix: string, count: number): SessionActiveOutput =>
       Object.fromEntries(Array.from({ length: count }, (_, i) => [`ses_${prefix}_${i}`, { type: "running" }]));
-    f.active.mockResolvedValueOnce(activeMap("old", 9));
+    const oldCount = 2 * V2_DETAIL_CONCURRENCY + 1;
+    const newCount = V2_DETAIL_CONCURRENCY + 1;
+    f.active.mockResolvedValueOnce(activeMap("old", oldCount));
     const details = controlledDetails(f);
-    const oldRefresh = f.monitor.refresh("ses_A"); await details.started("ses_old_3");
+    const oldRefresh = f.monitor.refresh("ses_A");
+    await Promise.all(Array.from({ length: V2_DETAIL_CONCURRENCY }, (_, i) => details.started(`ses_old_${i}`)));
     const waiter = f.monitor.accept(started(0, T0, "ses_observed"));
     const newRead = deferred<void>();
-    f.active.mockImplementationOnce(async () => { newRead.resolve(); return activeMap("new", 5); });
+    f.active.mockImplementationOnce(async () => { newRead.resolve(); return activeMap("new", newCount); });
     const newRefresh = f.monitor.refresh("ses_B"); await newRead.promise;
     details.release("ses_old_0"); await details.started("ses_new_0");
     details.finish(); await Promise.all([oldRefresh, waiter, newRefresh]);
-    expect(details.peak()).toBe(4); expect(details.inFlight()).toBe(0);
+    expect(details.peak()).toBe(V2_DETAIL_CONCURRENCY); expect(details.inFlight()).toBe(0);
     // The old waiter is cancelled, but the current inventory must independently
     // recover its already-observed execution; changing route does not erase it.
-    expect(f.get).toHaveBeenCalledTimes(10); // four old, five active, one observed identity
+    expect(f.get).toHaveBeenCalledTimes(V2_DETAIL_CONCURRENCY + newCount + 1);
     expect(f.get.mock.calls.filter(([input]) => input.sessionID === "ses_observed")).toHaveLength(1);
     expect(Object.keys(f.monitor.state().children).sort()).toEqual([
-      "ses_new_0", "ses_new_1", "ses_new_2", "ses_new_3", "ses_new_4", "ses_observed",
-    ]);
+      ...Array.from({ length: newCount }, (_, i) => `ses_new_${i}`), "ses_observed",
+    ].sort());
     expect(f.onIssue).not.toHaveBeenCalled();
   });
 
@@ -756,16 +765,19 @@ describe("V2 bounded reads and generations", () => {
     expect(f.monitor.state().totalExecuted).toBe(1);
   });
 
-  it("coalesces refreshes and bounds backoff to six nonzero retries", async () => {
+  it("coalesces refreshes and stops after the configured retry budget", async () => {
     const f = monitorFixture(); f.list.mockRejectedValue(new Error("PRIVATE"));
     await Promise.all([f.monitor.refresh("ses_parent"), f.monitor.refresh("ses_parent")]);
     expect(f.list).toHaveBeenCalledOnce();
-    for (const delay of [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]) {
+    for (let attempt = 0; attempt < V2_RETRY_MAX_ATTEMPTS; attempt++) {
+      const delay = Math.min(V2_RETRY_INITIAL_DELAY_MS * 2 ** attempt, V2_RETRY_MAX_DELAY_MS);
       const calls = f.list.mock.calls.length;
       await vi.advanceTimersByTimeAsync(delay - 1); expect(f.list).toHaveBeenCalledTimes(calls);
       await vi.advanceTimersByTimeAsync(1); expect(f.list).toHaveBeenCalledTimes(calls + 1);
     }
-    await vi.runAllTimersAsync(); expect(f.list).toHaveBeenCalledTimes(7);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_MAX_DELAY_MS + 1);
+    expect(f.list).toHaveBeenCalledTimes(1 + V2_RETRY_MAX_ATTEMPTS);
     expect(f.monitor.stale()).toBe(true);
     expect(f.onChange).toHaveBeenCalled();
     await f.monitor.refresh("ses_other");
@@ -777,7 +789,7 @@ describe("V2 bounded reads and generations", () => {
     f.get.mockRejectedValueOnce(new Error("offline"));
     await f.monitor.accept(started(0, T0 + 1_000));
     expect(f.monitor.stale()).toBe(true);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_INITIAL_DELAY_MS);
     expect(f.monitor.state().children.ses_child.status).toBe("running");
     expect(f.monitor.stale()).toBe(false);
   });
@@ -791,7 +803,7 @@ describe("V2 bounded reads and generations", () => {
     old.resolve({ data: [], cursor: {} }); await refresh;
     expect(f.monitor.stale()).toBe(true);
     expect(vi.getTimerCount()).toBe(1);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_INITIAL_DELAY_MS);
     expect(f.monitor.state().children.ses_child.status).toBe("running");
     expect(f.monitor.stale()).toBe(false);
   });
@@ -815,7 +827,7 @@ describe("V2 bounded reads and generations", () => {
     const f = monitorFixture(); f.list.mockRejectedValueOnce(new Error("offline"));
     await f.monitor.refresh("ses_parent");
     await f.monitor.refresh("ses_other");
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(V2_RETRY_INITIAL_DELAY_MS);
     expect(f.list).toHaveBeenCalledTimes(2);
     await Promise.all(Array.from({ length: 20 }, (_, i) => f.monitor.accept({
       type: "session.status", id: `hint_${i}`, created: T0 + i,
@@ -837,29 +849,32 @@ describe("V2 bounded reads and generations", () => {
     expect(JSON.stringify(f.monitor.state())).not.toContain("PRIVATE");
   });
 
-  it("prunes only terminal history at 1500 rows and three days", async () => {
+  it("bounds terminal history while retaining active rows and avoiding pruned-history reads", async () => {
     const f = monitorFixture(); f.noCache();
-    const rows = Array.from({ length: 1501 }, (_, i) => terminal({ id: `ses_${i}` }));
-    rows.push(terminal({ id: "ses_expired", time: { created: T0 - 4 * 86400_000, updated: T0, idle: T0 - 4 * 86400_000 } }));
+    const rows = Array.from({ length: MAX_TERMINAL_CHILDREN + 1 }, (_, i) => terminal({ id: `ses_${i}` }));
+    const expiredAt = Date.now() - TERMINAL_CHILD_TTL_MS - 1;
+    rows.push(terminal({ id: "ses_expired", time: { created: expiredAt - 1, updated: expiredAt, idle: expiredAt } }));
     f.list.mockImplementation(async input => {
-      const offset = Number(input?.cursor ?? 0); const next = offset + 100;
+      expect(input?.limit).toBe(V2_HISTORY_PAGE_SIZE);
+      const offset = Number(input?.cursor ?? 0); const next = offset + input!.limit!;
       return { data: rows.slice(offset, next), cursor: next < rows.length ? { next: String(next) } : {} };
     });
     f.active.mockResolvedValue({ ses_active: { type: "running" } });
-    f.get.mockResolvedValue(childInfo({ id: "ses_active", time: { created: T0 - 5 * 86400_000, updated: T0 } }));
+    f.get.mockResolvedValue(childInfo({ id: "ses_active", time: { created: expiredAt - 1, updated: expiredAt } }));
     await f.monitor.refresh("ses_parent");
-    expect(Object.values(f.monitor.state().children).filter(child => child.status === "done")).toHaveLength(1500);
+    expect(Object.values(f.monitor.state().children).filter(child => child.status === "done")).toHaveLength(MAX_TERMINAL_CHILDREN);
     expect(f.monitor.state().children.ses_expired).toBeUndefined();
     expect(f.monitor.state().children.ses_active.status).toBe("running");
-    expect(f.monitor.state().totalExecuted).toBe(1501);
+    expect(f.monitor.state().totalExecuted).toBe(MAX_TERMINAL_CHILDREN + 1);
     await f.monitor.refresh();
     expect(f.get).toHaveBeenCalledTimes(2); // only the active ID, not pruned history
   });
 
   it("expires interruption feedback with its terminal row, not as a permanent stale flag", async () => {
     const f = monitorFixture();
-    await f.monitor.accept(started(0, T0)); await f.monitor.accept(shutdown(1, T0 + 1_000));
-    vi.setSystemTime(T0 + 4 * 86400_000);
+    const endedAt = T0 + 1_000;
+    await f.monitor.accept(started(0, T0)); await f.monitor.accept(shutdown(1, endedAt));
+    vi.setSystemTime(endedAt + TERMINAL_CHILD_TTL_MS + 1);
     await f.monitor.refresh("ses_parent");
     expect(f.monitor.state().children.ses_child).toBeUndefined();
     expect(f.monitor.hint("ses_child")).toBeUndefined();

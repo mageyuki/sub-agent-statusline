@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import os from "node:os";
+import { MAX_TERMINAL_CHILDREN, TERMINAL_CHILD_TTL_MS } from "./internal-policy.js";
 import {
   classifySubagentWorkItem,
   correlateSubagentWorkItems,
@@ -55,8 +56,6 @@ export interface StatusCounts {
   error: number;
 }
 
-const TERMINAL_CHILD_TTL_MS = 3 * 24 * 60 * 60 * 1000;
-const MAX_TERMINAL_CHILDREN = 1_500;
 
 function statusColor(status: ChildStatus): ChildSessionState["color"] {
   if (status === "done") return "green";

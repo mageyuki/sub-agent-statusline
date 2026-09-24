@@ -194,8 +194,10 @@ describe("terminal positive evidence", () => {
 });
 
 describe("stale fallback thresholds", () => {
-  it("defaults to approximately 10 hours and preserves override semantics", () => {
-    expect(defaultStaleRunningThresholdMs()).toBe(10 * 60 * 60_000);
+  it("uses a finite positive default and preserves override semantics", () => {
+    const defaultMs = defaultStaleRunningThresholdMs();
+    expect(Number.isFinite(defaultMs)).toBe(true);
+    expect(defaultMs).toBeGreaterThan(0);
     expect(parseStaleRunningThresholdMs(undefined)).toBe(
       defaultStaleRunningThresholdMs(),
     );

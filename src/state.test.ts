@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { TERMINAL_CHILD_TTL_MS } from "./internal-policy.js";
 import {
   createEmptyState,
   countHistoricalSubagentExecutions,
@@ -444,44 +445,23 @@ describe("state", () => {
   });
 
   it("prunes old terminal children without losing running children", () => {
+    const now = new Date("2026-04-30T10:00:01.000Z");
     const state = createEmptyState();
-    state.children.running = child({ id: "running" });
-    state.children.oldDone = child({
-      id: "oldDone",
-      status: "done",
-      color: "green",
-      endedAt: "2026-04-26T08:00:00.000Z",
-      updatedAt: "2026-04-26T08:00:00.000Z",
-    });
-    state.children.oldError = child({
-      id: "oldError",
-      status: "error",
-      color: "red",
-      endedAt: "2026-04-26T08:00:00.000Z",
-      updatedAt: "2026-04-26T08:00:00.000Z",
-    });
-    state.children.recentDone = child({
-      id: "recentDone",
-      status: "done",
-      color: "green",
-      endedAt: "2026-04-28T09:30:00.000Z",
-      updatedAt: "2026-04-28T09:30:00.000Z",
-    });
-    state.children.recentError = child({
-      id: "recentError",
-      status: "error",
-      color: "red",
-      endedAt: "2026-04-28T09:30:00.000Z",
-      updatedAt: "2026-04-28T09:30:00.000Z",
-    });
-
-    expect(
-      pruneTerminalChildren(state, new Date("2026-04-30T10:00:01.000Z")),
-    ).toBe(2);
+    const boundary = now.getTime() - TERMINAL_CHILD_TTL_MS;
+    state.children.running = child({ id: "running",
+      startedAt: new Date(boundary - 1).toISOString(),
+      updatedAt: new Date(boundary - 1).toISOString() });
+    for (const status of ["done", "error"] as const) {
+      for (const [suffix, delta] of [["before", 1], ["at", 0], ["expired", -1]] as const) {
+        const id = `${status}_${suffix}`;
+        const at = new Date(boundary + delta).toISOString();
+        state.children[id] = child({ id, status, color: status === "done" ? "green" : "red",
+          startedAt: at, updatedAt: at, endedAt: at });
+      }
+    }
+    expect(pruneTerminalChildren(state, now)).toBe(2);
     expect(Object.keys(state.children).sort()).toEqual([
-      "recentDone",
-      "recentError",
-      "running",
+      "done_at", "done_before", "error_at", "error_before", "running",
     ]);
   });
 

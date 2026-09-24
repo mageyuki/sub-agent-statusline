@@ -1,9 +1,10 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import { describe, expect, it, vi } from "vitest";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
+import { MAX_SYNC_LOG_READ_BYTES } from "./internal-policy.js";
 import {
   backfillHydratedTargetSessionIDs,
   formatChildModelLine,
@@ -1570,14 +1571,21 @@ describe("registerSubagentCommands", () => {
 describe("readOpenCodeLogFileIfSmall", () => {
   it("skips oversized OpenCode logs before reading them synchronously", async () => {
     const dir = await mkdtemp(join(tmpdir(), "subagent-statusline-logs-"));
-    const smallLog = join(dir, "small.log");
-    const hugeLog = join(dir, "huge.log");
-
-    await writeFile(smallLog, "small log", "utf8");
-    await writeFile(hugeLog, `${"x".repeat(1024 * 1024)}x`, "utf8");
-
-    expect(readOpenCodeLogFileIfSmall(smallLog)).toBe("small log");
-    expect(readOpenCodeLogFileIfSmall(hugeLog)).toBeUndefined();
+    try {
+      const smallLog = join(dir, "small.log");
+      const boundaryLog = join(dir, "boundary.log");
+      await writeFile(smallLog, "small log", "utf8");
+      expect(readOpenCodeLogFileIfSmall(smallLog)).toBe("small log");
+      for (const size of [MAX_SYNC_LOG_READ_BYTES - 1, MAX_SYNC_LOG_READ_BYTES]) {
+        const content = "x".repeat(size);
+        await writeFile(boundaryLog, content, "utf8");
+        expect(readOpenCodeLogFileIfSmall(boundaryLog)).toBe(content);
+      }
+      await writeFile(boundaryLog, "x".repeat(MAX_SYNC_LOG_READ_BYTES + 1), "utf8");
+      expect(readOpenCodeLogFileIfSmall(boundaryLog)).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
