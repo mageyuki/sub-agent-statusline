@@ -43,6 +43,7 @@ interface Tracked {
   execution?: Execution;
   needsRefresh?: boolean;
   metadataPending?: boolean;
+  metadataHintRevision?: number;
   usageCreated?: number;
   title?: Observed<string | undefined>;
   agent?: Observed<string | undefined>;
@@ -180,7 +181,9 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     item.agent = reconcile(item.agent, info.agent);
     item.model = reconcile(item.model, info.model);
     item.usage = reconcile(item.usage, tokens(info.tokens));
-    if (readRevision !== undefined && item.revision <= readRevision) item.metadataPending = false;
+    if (readRevision !== undefined && Math.max(item.revision, item.metadataHintRevision ?? 0) <= readRevision) {
+      item.metadataPending = false;
+    }
     const model = item.model ? item.model.value : info.model ?? assistant?.model;
     upsertChildDetails(current, info.id, {
       title: item.title ? item.title.value : info.title,
@@ -295,7 +298,7 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     // A hint may have joined this older flight. Only newer pending observations
     // need a follow-up; an unchanged/missing result must not create a polling loop.
     if ([...tracked.values()].some(item => !item.deleted && !item.retired &&
-      item.metadataPending && item.revision > readRevision)) requestHint();
+      item.metadataPending && Math.max(item.revision, item.metadataHintRevision ?? 0) > readRevision)) requestHint();
   }
 
   function refresh(selectedParent?: string): Promise<void> {
@@ -329,7 +332,12 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
       case "session.tool.success": case "session.tool.failed":
       case "session.retry.scheduled": {
         const item = tracked.get(event.data.sessionID);
-        if (item && !item.deleted && !item.retired) item.metadataPending = true;
+        if (item && !item.deleted && !item.retired) {
+          item.metadataPending = true;
+          // Confirmation belongs to a read captured after this hint. Keep its
+          // marker separate: a hint is not execution/metadata event evidence.
+          item.metadataHintRevision = ++revision;
+        }
         requestHint(); return;
       }
       case "session.created": case "session.execution.started":

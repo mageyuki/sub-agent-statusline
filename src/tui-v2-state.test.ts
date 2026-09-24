@@ -76,6 +76,14 @@ function controlledDetails(f: ReturnType<typeof monitorFixture>) {
     inFlight: () => inFlight,
   };
 }
+async function pendingHomeInventory() {
+  const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+  f.noCache(); f.active.mockResolvedValue({ ses_child: { type: "running" } });
+  const old = deferred<SessionInfo>(); const reading = deferred<void>();
+  f.get.mockImplementationOnce(() => { reading.resolve(); return old.promise; });
+  const refresh = f.monitor.refresh(); await reading.promise;
+  return { f, old, refresh };
+}
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(T0 + 20_000); });
 afterEach(() => { monitors.splice(0).forEach(monitor => monitor.dispose()); });
 
@@ -418,6 +426,73 @@ describe("V2 independent event and read freshness", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(f.monitor.state().children.ses_child).toMatchObject({ status: "running", title: "Missed update",
       tokens: { input: 60, output: 6, total: 66 } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([1, 20])("confirms %i trailing activity hints with one fresh read after an older home inventory", async count => {
+    const { f, old, refresh } = await pendingHomeInventory();
+    for (let i = 0; i < count; i++) await f.monitor.accept({
+      id: `idle_${i}`, created: T0 + 3_000 + i, type: "session.idle", data: { sessionID: "ses_child" },
+    });
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.get).toHaveBeenCalledTimes(1); // hint joined the pre-hint inventory
+    old.resolve(childInfo({ title: "Before hint", tokens: usage(T0, 10, 1).data.tokens })); await refresh;
+    f.setInfo(childInfo({ title: "Missed update", tokens: usage(T0, 40, 7).data.tokens }));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(f.get).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "running", title: "Missed update",
+      tokens: { input: 40, output: 7, total: 47 } });
+    expect(f.monitor.state().totalExecuted).toBe(1);
+    expect(f.get).toHaveBeenCalledTimes(2); expect(f.active).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.get).toHaveBeenCalledTimes(2); // confirmation is not permanent polling
+  });
+
+  it("a trailing hint requests confirmation without invalidating already-pending terminal evidence", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    const old = deferred<SessionListOutput>(); f.list.mockReturnValueOnce(old.promise);
+    const refresh = f.monitor.refresh("ses_parent");
+    await f.monitor.accept({ id: "idle", created: T0 + 3_000, type: "session.idle", data: { sessionID: "ses_child" } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    old.resolve({ data: [terminal()], cursor: {} }); await refresh;
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", endedAt: new Date(T0 + 2_000).toISOString() });
+    f.setInfo(terminal({ title: "Confirmed terminal", tokens: usage(T0, 40, 7).data.tokens }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", title: "Confirmed terminal",
+      tokens: { input: 40, output: 7, total: 47 }, endedAt: new Date(T0 + 2_000).toISOString() });
+    expect(f.list).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["scheduled", "in flight"])("disposes a %s activity-hint follow-up without later work", async phase => {
+    const { f, old, refresh } = await pendingHomeInventory();
+    await f.monitor.accept({ id: "idle", created: T0 + 3_000, type: "session.idle", data: { sessionID: "ses_child" } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    old.resolve(childInfo()); await refresh;
+    expect(vi.getTimerCount()).toBe(1);
+    const next = deferred<SessionInfo>(); f.get.mockReturnValueOnce(next.promise);
+    if (phase === "in flight") {
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(f.get).toHaveBeenCalledTimes(2);
+    }
+    const before = f.monitor.state();
+    f.monitor.dispose(); f.onChange.mockClear(); f.onIssue.mockClear();
+    next.resolve(childInfo({ title: "Late result", tokens: usage(T0, 100, 10).data.tokens }));
+    await vi.runAllTimersAsync();
+    expect(f.monitor.state()).toEqual(before);
+    expect(f.onChange).not.toHaveBeenCalled(); expect(f.onIssue).not.toHaveBeenCalled();
+    expect(f.get).toHaveBeenCalledTimes(phase === "in flight" ? 2 : 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not create tracked records or follow-up detail work for unknown activity hints", async () => {
+    const f = monitorFixture();
+    await f.monitor.accept({ id: "idle_unknown", created: T0, type: "session.idle", data: { sessionID: "ses_unknown" } });
+    await vi.advanceTimersByTimeAsync(1_000); await f.monitor.reconnect();
+    expect(f.monitor.state().children).toEqual({}); expect(f.monitor.state().totalExecuted).toBe(0);
+    expect(f.get).not.toHaveBeenCalled(); expect(f.invalidate).not.toHaveBeenCalledWith("ses_unknown");
     expect(vi.getTimerCount()).toBe(0);
   });
 
