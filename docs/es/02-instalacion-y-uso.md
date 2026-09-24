@@ -2,7 +2,26 @@
 
 `opencode-subagent-statusline` se instala como plugin TUI de OpenCode. Una vez activo, agrega una sección de subagentes en la sidebar y un resumen compacto en la pantalla de inicio cuando hay actividad.
 
-## Instalación rápida
+## Instalación en V2 2.0.11
+
+Usá el archivo global `~/.config/opencode/cli.json` (o `$XDG_CONFIG_HOME/opencode/cli.json`), no una entrada de plugins del servidor. Este ejemplo es una configuración **nueva** ilustrativa, no un reemplazo de tu archivo actual:
+
+```json
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["/absolute/reviewed-artifact/dist"]
+}
+```
+
+El directorio absoluto debe contener directamente `tui.js` y los adaptadores diferidos adyacentes. En V2 no registres la raíz del paquete ni un archivo directo. Conservá el paquete instalado completo y sus dependencias en un artefacto revisado e inmutable. Para una release que incluya este puente, la forma por nombre es `"plugins": ["opencode-subagent-statusline"]`; la raíz y `/tui` siguen estables. Esta build de desarrollo no implica una publicación en npm.
+
+Preservá plugins/configuración ajenos y registrá una sola identidad `subagent-statusline.tui`. **Antes** de editar, guardá un backup con permisos restrictivos y el artefacto anterior: los cambios pueden recargarse en vivo. Para revertir, cambiá solo esta entrada si hubo otras ediciones; restaurá el backup completo solo si es seguro. El usuario controla los reinicios de la TUI habitual. Revisá `OPENCODE_CLI_CONFIG_CONTENT` si el archivo no tiene efecto.
+
+V2 no necesita `/runtime`. Usa datos públicos del host conectado, resúmenes/modelos opcionales y uso acumulado de entrada + salida, **no porcentaje de contexto**. Los snapshots usan `v2` por defecto; el override exacto `OPENCODE_SUBAGENT_STATUSLINE_STATE` no debe colisionar con otro escritor. Se conservan 3 días/1.500 filas terminales, sin limitar hijos activos. Títulos/resúmenes pueden contener texto de tareas.
+
+## Instalación rápida V1 (`>=1.14.50 <2`)
+
+Las instrucciones siguientes de configuración legacy, archivo local, SQLite/logs y diagnóstico corresponden a **V1**. Los objetivos de validación son 1.14.50 y 1.18.29; la validación V2 es específica de 2.0.11.
 
 Agregá el paquete al archivo de configuración TUI de OpenCode:
 

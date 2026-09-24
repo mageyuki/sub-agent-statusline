@@ -1,5 +1,15 @@
 # Solución de problemas
 
+## Empezá por la versión del host
+
+V1 soporta `>=1.14.50 <2`; los objetivos de validación son 1.14.50 y 1.18.29. El objetivo V2 es específicamente **2.0.11**. En V2 revisá primero `cli.json` global (`plugins`, esquema `https://opencode.ai/v2/cli.json`) y overrides inline. Una entrada local debe ser el **directorio que contiene `tui.js`**, no la raíz del paquete ni un archivo directo. Conservá el artefacto instalado completo y una sola identidad del monitor; no agregues `/runtime` para corregir la carga V2. Seguí el [backup/rollback de instalación](02-instalacion-y-uso.md); no hace falta reiniciar el servicio compartido para cambiar esta entrada TUI.
+
+V2 usa datos públicos del host conectado, no los diagnósticos SQLite/logs de abajo. Modelo/resumen ausentes son válidos. Uso acumulado de entrada + salida no es porcentaje de contexto. Avisos de interrupción/frescura indican evidencia incompleta; no se deben reemplazar por un éxito antiguo guardado. Revisá el directorio `v2` o el override exacto para evitar colisiones, sin importar estado V1 ni divulgar títulos/resúmenes al reportar problemas.
+
+Para problemas de entrada, registrá si el foco pertenece a la lista real, prompt o modal, la ruta actual y si la sidebar está montada. Probá por separado paleta/Alt+B/Esc, vuelta al padre + escritura, teclas modificadas, mouse/historial, resize y reload. Vitest nativo no certifica prioridad de teclas del host. `pnpm test:package` compila antes de revisar el grafo empaquetado; el typecheck de tests es `pnpm exec tsc --noEmit -p tsconfig.test.json`.
+
+Las instrucciones legacy de configuración, logs de eventos, DB y fallback que siguen describen **V1**; no apliques esos mecanismos de recuperación a V2.
+
 Esta guía junta problemas comunes al instalar, usar o desarrollar `opencode-subagent-statusline`.
 
 La estrategia general:
@@ -291,21 +301,20 @@ Usá snapshot solo si el shape completo es el contrato.
 
 ## `pnpm typecheck` pasa pero el paquete puede no publicar bien
 
-El CI de PR corre:
+El job principal del CI de PR en `.github/workflows/ci.yml` corre:
 
 ```sh
 pnpm typecheck
 pnpm test
-```
-
-No corre build ni pack dry-run.
-
-Si tocaste packaging, exports, assets o `package.json.files`, corré:
-
-```sh
-pnpm build
+pnpm exec tsc --noEmit -p tsconfig.test.json
+pnpm test:package
+pnpm audit --prod --audit-level moderate
 pnpm pack --dry-run
 ```
+
+`pnpm test:package` compila antes de revisar el grafo del paquete empaquetado. Si tocaste packaging, exports, assets o `package.json.files`, corré estos checks también localmente.
+
+Un job separado, `native-test`, usa Node.js 26.4.0 con `--experimental-ffi`, verifica la disponibilidad de `node:ffi` y corre la suite nativa completa. Su gate exige un reporte exitoso con al menos un test y cero tests pendientes/omitidos o todo. Esto no reemplaza los checks de aceptación en el host real.
 
 ## Docs en `docs/es/` no aparecen en npm
 
@@ -367,6 +376,6 @@ Cuando algo falla, seguí este orden:
 | `src/state.ts`                         | Si el conteo o persistencia parece incorrecto. |
 | `src/render.ts`                        | Si una fila aparece/desaparece raro.           |
 | `src/reconcile.ts`                     | Si un `running` viejo no se cierra.            |
-| `src/tui.tsx`                          | Si falla UI, hydration o navegación.           |
+| `src/tui-v1.tsx`, `src/tui-view.tsx` | Si falla la integración V1 o la UI/navegación compartida. |
 | `src/tui-commands.ts`                  | Si fallan comandos o `Alt+B`.                  |
 | `test/helpers/runtime-harness.ts`      | Si fallan tests de filesystem/env.             |

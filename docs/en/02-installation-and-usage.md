@@ -2,7 +2,26 @@
 
 `opencode-subagent-statusline` is installed as an OpenCode TUI plugin. Once active, it adds a subagent section to the sidebar and a compact summary on the home screen when there is activity.
 
-## Quick install
+## V2 2.0.11 installation
+
+Use global `~/.config/opencode/cli.json` (or `$XDG_CONFIG_HOME/opencode/cli.json`), not a server plugin entry. This is an illustrative **new** configuration, not a replacement for your existing file:
+
+```json
+{
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["/absolute/reviewed-artifact/dist"]
+}
+```
+
+The absolute directory must directly contain `tui.js` and the adjacent lazy adapters. Do not register the package root or a direct file on V2. Keep the complete installed package/dependencies in an immutable reviewed artifact. The named-package form, for a release containing this bridge, is `"plugins": ["opencode-subagent-statusline"]`; root and `/tui` remain stable. This development build is not automatically an npm release.
+
+Preserve unrelated settings/plugins and register one `subagent-statusline.tui` identity. Back up the configuration with restrictive permissions and retain the previous artifact **before** editing: edits can live-reload. Roll back only this entry if other settings have changed; restore a whole backup only when safe. The user controls normal-TUI restarts. Check inline `OPENCODE_CLI_CONFIG_CONTENT` overrides if file edits have no effect.
+
+V2 needs no `/runtime` entry. It uses public connected-host data, optional summaries/models, and cumulative input + output usage, **not context percentage**. Default snapshots use a `v2` subdirectory; exact `OPENCODE_SUBAGENT_STATUSLINE_STATE` overrides must not collide with another writer. Retention remains 3 days/1,500 terminal rows, without capping active children. Titles/summaries can contain task text.
+
+## V1 quick install (`>=1.14.50 <2`)
+
+The following legacy configuration, local-file, SQLite/log and troubleshooting instructions apply to **V1**. Qualification targets are 1.14.50 and 1.18.29; V2 qualification is specifically 2.0.11.
 
 Add the package to OpenCode's TUI configuration file:
 

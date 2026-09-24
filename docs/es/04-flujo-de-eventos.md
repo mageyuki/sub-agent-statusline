@@ -1,5 +1,13 @@
 # Flujo de eventos
 
+## V2 2.0.11: evidencia pública de ejecución
+
+`src/tui-v2-state.ts` lee `event.data` tipado, hijos directos paginados, IDs activos y metadatos de sesión/cache del host conectado. Crear una sesión no cuenta como ejecución. Un inicio borra tiempos terminales; éxito/fallo/interrupción usa la presentación done/error existente. Idle o completar una herramienta solo indica que hay que refrescar. La secuencia cero es válida; el orden por sesión y las generaciones de lecturas rechazan resultados viejos/duplicados.
+
+Una interrupción por shutdown puede dejar un éxito antiguo persistido: V2 conserva la interrupción más nueva observada y el aviso de frescura hasta obtener evidencia nueva. Una página fallida conserva filas conocidas y reintenta de forma acotada. El uso acumulado reemplaza entrada/salida, sin inferir porcentaje de contexto ni sumar categorías solapadas de cache/reasoning. Los modelos usan la ubicación del hijo y el cache de mensajes su ID de sesión. No se usa el parser V1, fallback SQLite/logs ni snapshots guardados de V1.
+
+Los formatos de eventos/wrappers y fallbacks que siguen son **exclusivos de V1**; su integración TUI está en `src/tui-v1.tsx`, no en el puente público.
+
 El plugin convierte eventos variables de OpenCode en un estado interno estable. Esa conversión ocurre principalmente en `src/events.ts` y después pasa por `src/state.ts` y `src/render.ts`.
 
 La regla más importante:
@@ -295,7 +303,7 @@ Esto es importante para flujos síncronos donde la sesión real no aparece inmed
 
 La TUI no depende solo de eventos live.
 
-Cuando se navega a una sesión, `src/tui.tsx` intenta hidratar subagentes previos consultando APIs de OpenCode:
+Cuando se navega a una sesión, `src/tui-v1.tsx` intenta hidratar subagentes previos consultando APIs de OpenCode:
 
 - sesiones hijas;
 - mensajes;
@@ -387,6 +395,6 @@ Mostrar en TUI o status.txt
 | `src/state.ts`          | Mutaciones, contadores y persistencia.                      |
 | `src/reconcile.ts`      | Normalización y cierre conservador.                         |
 | `src/render.ts`         | Collapse y visibilidad final.                               |
-| `src/tui.tsx`           | Suscripción a eventos, hydration y mantenimiento periódico. |
+| `src/tui-v1.tsx` | Suscripción a eventos, hydration y mantenimiento periódico V1. |
 | `src/events.test.ts`    | Casos de eventos y correlación.                             |
 | `src/reconcile.test.ts` | Casos fail-closed y stale-running.                          |

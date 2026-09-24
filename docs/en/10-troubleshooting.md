@@ -1,5 +1,15 @@
 # Troubleshooting
 
+## Start with the host version
+
+V1 support is `>=1.14.50 <2`; qualification targets are 1.14.50 and 1.18.29. V2's target is specifically **2.0.11**. On V2, first check global `cli.json` (`plugins`, schema `https://opencode.ai/v2/cli.json`) and any inline override. A local entry must be the **directory containing `tui.js`**, not its package root or a direct file. Keep the complete installed artifact and one monitor ID; do not add `/runtime` to fix V2 loading. Follow the [installation backup/rollback procedure](02-installation-and-usage.md); no shared-service restart is needed to change this TUI entry.
+
+V2 uses public connected-host data, not the SQLite/log diagnostics below. Missing model/summary data is valid. Cumulative input + output usage is not context percentage. Interrupted/stale feedback means current evidence is incomplete; it must not be replaced by an old stored success. Check the default `v2` snapshot directory or exact state override for writer collisions, without importing V1 state or exposing titles/summaries in bug reports.
+
+For input issues, record whether the actual monitor list, prompt or modal owns focus, the current route, and whether the sidebar is mounted. Test palette/Alt+B/Esc, parent return + typing, modified keys, mouse/history, resize and reload separately. Native Vitest alone does not certify host key precedence. `pnpm test:package` builds before checking the packed graph; test typecheck is `pnpm exec tsc --noEmit -p tsconfig.test.json`.
+
+The remaining legacy config, event-log, DB and fallback instructions describe **V1**; do not apply those recovery mechanisms to V2.
+
 This guide covers common issues when installing, using, or developing `opencode-subagent-statusline`.
 
 General strategy:
@@ -281,21 +291,20 @@ Use snapshots only when the complete shape is intentional behavior.
 
 ## `pnpm typecheck` passes but package publishing may still be wrong
 
-PR CI runs:
+The main PR CI job in `.github/workflows/ci.yml` runs:
 
 ```sh
 pnpm typecheck
 pnpm test
-```
-
-It does not run build or pack dry-run.
-
-If packaging, exports, assets, or `package.json.files` changed, run:
-
-```sh
-pnpm build
+pnpm exec tsc --noEmit -p tsconfig.test.json
+pnpm test:package
+pnpm audit --prod --audit-level moderate
 pnpm pack --dry-run
 ```
+
+`pnpm test:package` builds before checking the packed package graph. If packaging, exports, assets, or `package.json.files` changed, run these checks locally too.
+
+A separate `native-test` job uses Node.js 26.4.0 with `--experimental-ffi`, verifies `node:ffi` availability, and runs the full native suite. Its gate requires a successful, nonempty test report with zero pending/skipped or todo tests. This does not replace actual-host acceptance checks.
 
 ## Docs are not included in npm
 
@@ -353,6 +362,6 @@ Caution: it can grow quickly and may include session data.
 | `src/state.ts` | If counting or persistence looks wrong. |
 | `src/render.ts` | If rows appear/disappear unexpectedly. |
 | `src/reconcile.ts` | If an old `running` row does not close. |
-| `src/tui.tsx` | UI, hydration, or navigation problems. |
+| `src/tui-v1.tsx`, `src/tui-view.tsx` | V1 integration or shared UI/navigation problems. |
 | `src/tui-commands.ts` | Command or `Alt+B` problems. |
 | `test/helpers/runtime-harness.ts` | Filesystem/env test failures. |

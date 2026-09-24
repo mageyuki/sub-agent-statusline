@@ -15,7 +15,7 @@ import {
   resolveTuiSubagentSnapshot,
   subagentRowHeight,
   wrapCompactText,
-} from "./tui.js";
+} from "./tui-v1.js";
 import { textColumns } from "./text-width.js";
 import {
   focusPromptWithDeferredRetry,
@@ -1351,11 +1351,15 @@ describe("TUI subagent hydration", () => {
 });
 
 describe("registerSubagentCommands", () => {
+  type CommandApi = Parameters<typeof registerSubagentCommands>[0]["api"];
+  type RegisterLayer = NonNullable<NonNullable<CommandApi["keymap"]>["registerLayer"]>;
+  type RegisterLegacy = NonNullable<NonNullable<CommandApi["command"]>["register"]>;
+
   it("registers both keymap and legacy commands when both APIs are available", () => {
     const keymapDispose = vi.fn();
     const legacyDispose = vi.fn();
-    const registerLayer = vi.fn(() => keymapDispose);
-    const commandRegister = vi.fn(() => legacyDispose);
+    const registerLayer = vi.fn<RegisterLayer>(() => keymapDispose);
+    const commandRegister = vi.fn<RegisterLegacy>(() => legacyDispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
     const toggleCompletedHistory = vi.fn();
@@ -1443,7 +1447,7 @@ describe("registerSubagentCommands", () => {
 
   it("registers only keymap when legacy API is unavailable", () => {
     const dispose = vi.fn();
-    const registerLayer = vi.fn(() => dispose);
+    const registerLayer = vi.fn<RegisterLayer>(() => dispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
     const toggleCompletedHistory = vi.fn();
@@ -1480,7 +1484,7 @@ describe("registerSubagentCommands", () => {
 
   it("falls back to the legacy command API when keymap is unavailable", () => {
     const dispose = vi.fn();
-    const register = vi.fn(() => dispose);
+    const register = vi.fn<RegisterLegacy>(() => dispose);
     const toggleSection = vi.fn();
     const focusSidebarList = vi.fn();
     const toggleCompletedHistory = vi.fn();

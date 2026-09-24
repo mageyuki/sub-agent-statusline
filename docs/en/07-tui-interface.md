@@ -1,5 +1,13 @@
 # TUI interface
 
+## V2 2.0.11 differences
+
+V2 appends the same shared view at `sidebar.content` and `home.footer.status`. An owned `app` contribution registers the existing three palette commands; base-mode keyboard commands target the monitor list, not a replacement panel. V2 does not wrap private host prompts. Palette focus waits for modal-to-base handoff; Esc/Alt+B return only to a live same-route editor. Parent return (`session.parent`) leaves the newly mounted prompt ready for typing, without automatic list refocus.
+
+Bare list shortcuts, mouse, `c`/`Σ`, scrolling, collapse and expansion remain the intended interaction. Dialogs, hidden/unmounted lists and modified navigation keys must not steal host input; `Alt/Option+Left` stays a host binding. These require actual-host checks, not only native component tests. The small preference object is `{ enabled, expanded }`; completed-history visibility is not persisted. V2 usage means input + output, not context occupancy. `Interrupted`/`Status may be stale` explain uncertainty without adding a status enum.
+
+The legacy slot names, prompt wrappers, hydration and maintenance details below are **V1-only** (`src/tui-v1.tsx`). For local V2 testing register the directory containing `tui.js`, as shown in [installation](02-installation-and-usage.md), not the direct-file V1 example below.
+
 The plugin's main interface is a section in the OpenCode sidebar. Its goal is to show subagent activity without pulling you out of your current workflow.
 
 ## Visual surfaces
@@ -221,7 +229,7 @@ Reconciliation is conservative: old rows are not closed by time alone.
 
 ## Current limits
 
-The state/render/command logic that feeds the UI is tested, but there is no deep E2E automation for the complete visual UI inside OpenCode/OpenTUI.
+State/render/command logic and native adapter lifecycles are tested. Actual packed-host interactions are qualified separately; neither unit coverage nor synthetic qualification certifies genuine execution in the user's normal TUI.
 
 Automatically covered:
 
@@ -230,7 +238,7 @@ Automatically covered:
 - `Alt+B` binding;
 - state/render/reconcile logic feeding the UI.
 
-For full visual changes, run a manual OpenCode smoke test.
+For visual/input changes, also run the isolated actual-host matrix in the [development guide](09-development-and-testing.md). The manual V1 checklist below is a useful supplement.
 
 ## Suggested manual smoke test
 
@@ -254,7 +262,8 @@ For full visual changes, run a manual OpenCode smoke test.
 
 | File | What to inspect |
 | --- | --- |
-| `src/tui.tsx` | UI, slots, hydration, reconciliation, and navigation. |
+| `src/tui-v1.tsx` | V1 slots, hydration, reconciliation, and navigation. |
+| `src/tui-view.tsx` | Shared sidebar/home UI, selection and scrolling. |
 | `src/tui-commands.ts` | Commands and keybindings. |
 | `src/render.ts` | Visible rows and deduplication before UI. |
 | `src/tui.test.ts` | Command registration tests. |

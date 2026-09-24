@@ -37,11 +37,12 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsup",
+    "build": "node --input-type=module -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true });\" && tsup",
     "prepack": "pnpm run build",
     "audit:prod": "pnpm audit --prod --audit-level moderate",
     "pack:dry-run": "pnpm pack --dry-run",
     "test": "vitest run",
+    "test:package": "pnpm build && vitest run --config vitest.package.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -56,17 +57,28 @@
   "license": "MIT",
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.50 <2",
+    "@opencode/plugin": "2.0.11",
+    "@opencode/theme": "2.0.11",
     "@opentui/core": ">=0.4.0 <0.6",
     "@opentui/solid": ">=0.4.0 <0.6",
     "solid-js": ">=1.9.12 <2"
   },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": { "optional": true },
+    "@opencode/plugin": { "optional": true },
+    "@opencode/theme": { "optional": true }
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.15.11",
-    "@opentui/core": "^0.4.0",
-    "@opentui/solid": "^0.4.0",
+    "@opencode/client": "2.0.11",
+    "@opencode/plugin": "2.0.11",
+    "@opencode/theme": "2.0.11",
+    "@opentui/core": "0.5.10",
+    "@opentui/solid": "0.5.10",
     "@types/node": "^22.19.19",
     "@vitest/coverage-v8": "^4.1.7",
     "esbuild-plugin-solid": "^0.6.0",
+    "solid-js": "1.9.12",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.7"
