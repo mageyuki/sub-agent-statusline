@@ -1,6 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-
-const MAX_SYNC_LOG_READ_BYTES = 1024 * 1024;
+import { MAX_SYNC_LOG_READ_BYTES } from "./internal-policy.js";
 
 function safeRead<T>(reader: () => T): T | undefined {
   try {

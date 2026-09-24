@@ -1,5 +1,6 @@
 import type { CliRenderer, Renderable } from "@opentui/core";
 import type { SidebarViewController } from "./tui-view.js";
+import { V2_FOCUS_MAX_ATTEMPTS, V2_FOCUS_RETRY_DELAY_MS } from "./internal-policy.js";
 
 export interface V2SidebarFocus {
   request(source: "keyboard" | "palette"): void;
@@ -67,11 +68,11 @@ export function createV2SidebarFocus(input: {
         // A remounted list is a different owner, even on the same route.
         if (input.view.target() !== target || !live(target)) return;
         if (transfer(modalTarget)) return;
-        if (++attempts === 10) { input.unavailable(); return; }
-        timer = setTimeout(attempt, 30);
+        if (++attempts === V2_FOCUS_MAX_ATTEMPTS) { input.unavailable(); return; }
+        timer = setTimeout(attempt, V2_FOCUS_RETRY_DELAY_MS);
       };
       // Dialog focus restoration is asynchronous even if its mode already reads base.
-      timer = setTimeout(attempt, 30);
+      timer = setTimeout(attempt, V2_FOCUS_RETRY_DELAY_MS);
     },
     leave: () => release(true),
     beforeNavigate: () => release(false),

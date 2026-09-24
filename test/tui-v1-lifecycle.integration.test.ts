@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import v1Plugin from "../src/tui-v1.js";
+import { MAINTENANCE_TICK_MS } from "../src/internal-policy.js";
 
 const hasNativeFFI = (() => {
   try { return Boolean(process.getBuiltinModule("node:ffi")); } catch { return false; }
@@ -163,7 +164,7 @@ describe.skipIf(!hasNativeFFI)("V1 registered slot ownership (requires node:ffi)
     expect(selected(target)).toBe("Beta work");
     const calls = host.slotCalls();
     await host.hydrateTokens();
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(MAINTENANCE_TICK_MS);
     await host.flush();
     expect(host.captureCharFrame()).toContain("15 ctx");
     expect(target.isDestroyed).toBe(false);

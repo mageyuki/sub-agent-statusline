@@ -1,5 +1,6 @@
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ELAPSED_TICK_MS, MAINTENANCE_TICK_MS, TERMINAL_CHILD_TTL_MS } from "./internal-policy.js";
 
 import type { ChildSessionState, StatuslineState } from "./state.js";
 import {
@@ -58,10 +59,12 @@ describe("TUI maintenance timers", () => {
     });
 
     timers.syncElapsedTimer(false);
-    vi.advanceTimersByTime(1_000);
-
+    vi.advanceTimersByTime(MAINTENANCE_TICK_MS - 1);
     expect(elapsed).not.toHaveBeenCalled();
     expect(maintenance).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(maintenance).toHaveBeenCalledOnce();
+    expect(elapsed).not.toHaveBeenCalled();
     timers.dispose();
   });
 
@@ -74,11 +77,15 @@ describe("TUI maintenance timers", () => {
     });
 
     timers.syncElapsedTimer(true);
-    vi.advanceTimersByTime(2_000);
+    vi.advanceTimersByTime(ELAPSED_TICK_MS - 1);
+    expect(elapsed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(elapsed).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(ELAPSED_TICK_MS);
     expect(elapsed).toHaveBeenCalledTimes(2);
 
     timers.syncElapsedTimer(false);
-    vi.advanceTimersByTime(2_000);
+    vi.advanceTimersByTime(2 * ELAPSED_TICK_MS);
     expect(elapsed).toHaveBeenCalledTimes(2);
     timers.dispose();
   });
@@ -86,15 +93,20 @@ describe("TUI maintenance timers", () => {
   it("keeps persistence outside elapsed-only ticks", () => {
     vi.useFakeTimers();
     const persist = vi.fn();
+    const elapsed = vi.fn();
     const timers = createTuiMaintenanceTimers({
-      onElapsedTick: vi.fn(),
+      onElapsedTick: elapsed,
       onMaintenanceTick: persist,
     });
 
     timers.syncElapsedTimer(true);
-    vi.advanceTimersByTime(1_000);
-
+    vi.advanceTimersByTime(MAINTENANCE_TICK_MS - 1);
     expect(persist).not.toHaveBeenCalled();
+    expect(elapsed).toHaveBeenCalledTimes(Math.floor((MAINTENANCE_TICK_MS - 1) / ELAPSED_TICK_MS));
+    vi.advanceTimersByTime(1);
+    expect(persist).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(MAINTENANCE_TICK_MS);
+    expect(persist).toHaveBeenCalledTimes(2);
     timers.dispose();
   });
 
@@ -107,8 +119,9 @@ describe("TUI maintenance timers", () => {
     });
 
     timers.syncElapsedTimer(false);
-    vi.advanceTimersByTime(2_000);
-
+    vi.advanceTimersByTime(MAINTENANCE_TICK_MS - 1);
+    expect(reconcile).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
     expect(reconcile).toHaveBeenCalledOnce();
     timers.dispose();
   });
@@ -124,7 +137,7 @@ describe("TUI maintenance timers", () => {
     timers.syncElapsedTimer(true);
 
     timers.dispose();
-    vi.advanceTimersByTime(10_000);
+    vi.advanceTimersByTime(2 * Math.max(ELAPSED_TICK_MS, MAINTENANCE_TICK_MS));
 
     expect(elapsed).not.toHaveBeenCalled();
     expect(maintenance).not.toHaveBeenCalled();
@@ -162,12 +175,13 @@ describe("TUI state maintenance", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-17T09:02:00.000Z"));
     const { api } = apiWithReadSpies();
+    const expiredAt = new Date(Date.now() - TERMINAL_CHILD_TTL_MS - 1).toISOString();
     const current = state([
       child({
         id: "expired",
         tokens: { total: 1 },
-        updatedAt: "2026-07-10T09:00:00.000Z",
-        endedAt: "2026-07-10T09:00:00.000Z",
+        updatedAt: expiredAt,
+        endedAt: expiredAt,
       }),
     ]);
 

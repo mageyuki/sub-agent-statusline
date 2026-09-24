@@ -92,6 +92,20 @@ afterAll(async () => { if (scratch) await rm(scratch, { recursive: true, force: 
 
 it("preserves public exports and ships both private adapters and declarations", async () => {
   const manifest = JSON.parse(await readFile(join(packedRoot, "package.json"), "utf8"));
+  const source = JSON.parse(await readFile(join(project, "package.json"), "utf8"));
+  const requiredPeers = [
+    "@opencode-ai/plugin", "@opencode/plugin", "@opencode/theme",
+    "@opentui/core", "@opentui/solid", "solid-js",
+  ] as const;
+  function requiredRange(record: unknown, key: string): string {
+    expect(record).not.toBeNull();
+    expect(typeof record).toBe("object");
+    expect(Object.hasOwn(record as object, key)).toBe(true);
+    const value = (record as Record<string, unknown>)[key];
+    expect(typeof value).toBe("string");
+    expect((value as string).trim().length).toBeGreaterThan(0);
+    return value as string;
+  }
   expect(manifest.exports).toEqual({
     ".": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },
     "./tui": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },
@@ -102,12 +116,11 @@ it("preserves public exports and ships both private adapters and declarations", 
       expect((await readdir(join(packedRoot, "dist")))).toContain(`${name}.${extension}`);
     }
   }
-  expect(manifest.engines.node).toBe(">=22.13");
-  expect(manifest.peerDependencies).toEqual({
-    "@opencode-ai/plugin": ">=1.14.50 <2", "@opencode/plugin": "2.0.11",
-    "@opencode/theme": "2.0.11", "@opentui/core": ">=0.4.0 <0.6",
-    "@opentui/solid": ">=0.4.0 <0.6", "solid-js": ">=1.9.12 <2",
-  });
+  expect(requiredRange(manifest.engines, "node")).toBe(requiredRange(source.engines, "node"));
+  expect(Object.keys(manifest.peerDependencies ?? {}).sort()).toEqual([...requiredPeers].sort());
+  for (const peer of requiredPeers) {
+    expect(requiredRange(manifest.peerDependencies, peer)).toBe(requiredRange(source.peerDependencies, peer));
+  }
   for (const peer of ["@opencode-ai/plugin", "@opencode/plugin", "@opencode/theme"]) {
     expect(manifest.peerDependenciesMeta[peer].optional).toBe(true);
   }

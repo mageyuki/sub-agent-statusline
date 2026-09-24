@@ -24,6 +24,7 @@ import {
   extractTaskToolEvidence,
 } from "./events.js";
 import { readOpenCodeLogFileIfSmall } from "./logs.js";
+import { DONE_TOKEN_REHYDRATE_THROTTLE_MS, ELAPSED_TICK_MS, MAINTENANCE_TICK_MS } from "./internal-policy.js";
 import { byPriority, renderStatusLine, visibleSubagentWorkItems } from "./render.js";
 import {
   canSafelyCloseNoTargetPersistedCandidate,
@@ -85,10 +86,7 @@ export {
 } from "./tui-view.js";
 
 const TUI_PLUGIN_ID = "subagent-statusline.tui";
-const ELAPSED_TICK_MS = 1000;
-const DONE_TOKEN_REHYDRATE_THROTTLE_MS = 2000;
 const DONE_TOKEN_REHYDRATE_MAX_ATTEMPTS = 15;
-const MAINTENANCE_TICK_MS = DONE_TOKEN_REHYDRATE_THROTTLE_MS;
 const HYDRATE_RETRY_BASE_DELAY_MS = 1000;
 const HYDRATE_RETRY_MAX_DELAY_MS = 30_000;
 const HYDRATE_RETRY_MAX_ATTEMPTS = 6;
