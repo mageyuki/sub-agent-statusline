@@ -7,6 +7,7 @@ import { childInfo, deferred, deleted, failed, header, shutdown, started, succee
 const monitors: V2Monitor[] = [];
 function monitorFixture() {
   let infos = [childInfo()];
+  let cacheInfos: SessionInfo[] | undefined;
   let cached = true;
   const get = vi.fn<V2MonitorInput["session"]["get"]>(async ({ sessionID }) => {
     const info = infos.find(info => info.id === sessionID);
@@ -22,14 +23,15 @@ function monitorFixture() {
   const onIssue = vi.fn();
   const invalidate = vi.fn();
   const monitor = createV2Monitor({ session: { get, list, active }, cache: {
-    get: id => cached ? infos.find(info => info.id === id) : undefined,
-    list: () => cached ? infos : [], sync: vi.fn(async () => {}), invalidate,
+    get: id => cached ? (cacheInfos ?? infos).find(info => info.id === id) : undefined,
+    list: () => cached ? (cacheInfos ?? infos) : [], sync: vi.fn(async () => {}), invalidate,
     message: { list: messages, get: () => undefined, sync: vi.fn(async () => {}), invalidate: vi.fn() },
   }, onChange, onIssue });
   monitors.push(monitor);
   return { monitor, get, list, active, messages, onChange, onIssue, invalidate,
     setInfo(info: SessionInfo) { infos = [info]; },
     setInfos(value: SessionInfo[]) { infos = value; },
+    setCachedInfos(value: SessionInfo[]) { cacheInfos = value; },
     noCache() { cached = false; },
   };
 }
@@ -239,6 +241,9 @@ describe("V2 execution evidence", () => {
     await f.monitor.accept({ ...header(1, T0 + 2_000), type: "session.renamed", data: { sessionID: "ses_child", title: "Renamed" } });
     await f.monitor.accept({ ...header(2, T0 + 3_000), type: "session.agent.selected", data: { sessionID: "ses_child", agent: "reviewer" } });
     await f.monitor.accept({ ...header(3, T0 + 4_000), type: "session.model.selected", data: { sessionID: "ses_child", model: { providerID: "test", id: "model", variant: "small" } } });
+    // A later network read confirms the events; cache freshness is tested separately.
+    f.list.mockResolvedValue({ data: [childInfo({ title: "Renamed", agent: "reviewer",
+      model: { providerID: "test", id: "model", variant: "small" } })], cursor: {} });
     await f.monitor.refresh("ses_parent");
     expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", title: "Renamed", agentName: "reviewer",
       model: { providerID: "test", modelID: "model", variant: "small" }, endedAt: new Date(T0 + 1_000).toISOString() });
@@ -273,12 +278,178 @@ describe("V2 execution evidence", () => {
     const f = monitorFixture(); await f.monitor.accept(started(0, T0));
     await f.monitor.accept(usage(T0 + 3_000)); await f.monitor.accept(usage(T0 + 3_000));
     await f.monitor.accept(usage(T0 + 2_000, 500, 200));
+    f.list.mockResolvedValue({ data: [childInfo({ tokens: usage(T0).data.tokens })], cursor: {} });
     await f.monitor.refresh("ses_parent");
     expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 40, output: 7, total: 47 });
     await f.monitor.accept(usage(T0 + 4_000, -1, Number.POSITIVE_INFINITY));
     expect(f.monitor.state().children.ses_child.tokens).toBeUndefined();
     await f.monitor.accept(usage(T0 + 5_000, 2, Number.NaN));
     expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 2, output: undefined, total: 2 });
+  });
+});
+
+describe("V2 independent event and read freshness", () => {
+  it.each([0, 3_000, 10_000])("does not seed the usage event watermark from snapshot updated +%i", async updated => {
+    const f = monitorFixture();
+    f.setInfo(terminal({ time: { created: T0, updated: T0 + updated, idle: T0 + 2_000 },
+      tokens: usage(T0, 10, 1).data.tokens }));
+    await f.monitor.refresh("ses_parent");
+    await f.monitor.accept(usage(T0 + 3_000));
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 40, output: 7, total: 47 });
+    // Lower cumulative values are valid replacements, not proof of an older event.
+    await f.monitor.accept(usage(T0 + 4_000, 5, 1));
+    await f.monitor.accept(usage(T0 + 4_000, 500, 100));
+    await f.monitor.accept(usage(T0 + 2_000, 600, 200));
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 5, output: 1, total: 6 });
+  });
+
+  it("never rolls an accepted usage event back through the next cached identity read", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    await f.monitor.accept(usage(T0 + 3_000));
+    f.setCachedInfos([childInfo({ time: { created: T0, updated: T0 + 10_000 }, tokens: usage(T0, 10, 1).data.tokens })]);
+    await f.monitor.accept(succeeded(1, T0 + 4_000));
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", tokens: { input: 40, output: 7, total: 47 } });
+  });
+
+  it("orders durable metadata by sequence rather than cache or event clocks", async () => {
+    const f = monitorFixture();
+    f.setInfo(childInfo({ title: "Cached", agent: "cached", model: { providerID: "old", id: "old" },
+      time: { created: T0, updated: T0 + 10_000 } }));
+    await f.monitor.accept(succeeded(0, T0 + 1_000));
+    await f.monitor.accept({ ...header(1, T0 + 3_000), type: "session.renamed", data: { sessionID: "ses_child", title: "Event" } });
+    await f.monitor.accept({ ...header(2, T0 + 2_000), type: "session.agent.selected", data: { sessionID: "ses_child", agent: "event" } });
+    await f.monitor.accept({ ...header(3, T0 + 1_000), type: "session.model.selected", data: { sessionID: "ses_child", model: { providerID: "new", id: "new" } } });
+    await f.monitor.accept({ ...header(4, T0), type: "session.renamed", data: { sessionID: "ses_child", title: "Latest sequence" } });
+    await f.monitor.accept({ ...header(3, T0 + 20_000), type: "session.renamed", data: { sessionID: "ses_child", title: "Delayed" } });
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", title: "Latest sequence", agentName: "event",
+      model: { providerID: "new", modelID: "new" }, endedAt: new Date(T0 + 1_000).toISOString() });
+    expect(f.monitor.state().totalExecuted).toBe(1);
+  });
+
+  it.each([0, 3_000, 10_000])("allows a subsequent fresh list at updated +%i to reconcile missed changes", async updated => {
+    const f = monitorFixture();
+    f.setCachedInfos([childInfo({ time: { created: T0, updated: T0 + 20_000 } })]);
+    await f.monitor.accept(started(0, T0));
+    await f.monitor.accept(usage(T0 + 3_000));
+    await f.monitor.accept({ ...header(1, T0 + 3_000), type: "session.renamed", data: { sessionID: "ses_child", title: "Event" } });
+    await f.monitor.accept({ ...header(2, T0 + 3_000), type: "session.agent.selected", data: { sessionID: "ses_child", agent: "event" } });
+    await f.monitor.accept({ ...header(3, T0 + 3_000), type: "session.model.selected", data: { sessionID: "ses_child", model: { providerID: "event", id: "event" } } });
+    f.setInfo(childInfo({ title: "Missed rename", agent: "fresh", model: { providerID: "fresh", id: "fresh" },
+      time: { created: T0, updated: T0 + updated }, tokens: usage(T0, 5, 1).data.tokens }));
+    const active = deferred<SessionActiveOutput>(); f.active.mockReturnValueOnce(active.promise);
+    const refreshed = deferred<void>(); f.onChange.mockImplementationOnce(() => refreshed.resolve());
+    const refresh = f.monitor.refresh("ses_parent"); await refreshed.promise;
+    active.resolve({ ses_child: { type: "running" } }); await refresh;
+    // Late active/cache hydration and a duplicate event cannot restore the old values.
+    await f.monitor.accept(usage(T0 + 3_000, 999, 999));
+    await f.monitor.accept(succeeded(4, T0 + 4_000));
+    expect(f.monitor.state().children.ses_child).toMatchObject({ title: "Missed rename", agentName: "fresh",
+      model: { providerID: "fresh", modelID: "fresh" }, tokens: { input: 5, output: 1, total: 6 } });
+    // Reconciliation must not poison the separate event watermark either.
+    await f.monitor.accept(usage(T0 + 4_000, 2, Number.NaN));
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 2, output: undefined, total: 2 });
+    await f.monitor.accept(usage(T0 + 5_000, -1, Number.POSITIVE_INFINITY));
+    expect(f.monitor.state().children.ses_child.tokens).toBeUndefined();
+  });
+
+  it.each(["list", "detail"])("preserves events received during a deferred %s, then accepts a later fresh read", async kind => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    const page = deferred<SessionListOutput>(); const info = deferred<SessionInfo>();
+    const arrived = deferred<void>();
+    if (kind === "list") f.list.mockImplementationOnce(() => { arrived.resolve(); return page.promise; });
+    else {
+      f.noCache(); f.active.mockResolvedValue({ ses_child: { type: "running" } });
+      f.get.mockImplementationOnce(() => { arrived.resolve(); return info.promise; });
+    }
+    const refresh = f.monitor.refresh(kind === "list" ? "ses_parent" : undefined); await arrived.promise;
+    await f.monitor.accept(usage(T0 + 3_000));
+    await f.monitor.accept({ ...header(1, T0 + 3_000), type: "session.renamed", data: { sessionID: "ses_child", title: "Event" } });
+    const old = childInfo({ title: "Old network", time: { created: T0, updated: T0 + 10_000 }, tokens: usage(T0, 10, 1).data.tokens });
+    page.resolve({ data: [old], cursor: {} }); info.resolve(old); await refresh;
+    expect(f.monitor.state().children.ses_child).toMatchObject({ title: "Event", tokens: { input: 40, output: 7, total: 47 } });
+    f.setCachedInfos([old]);
+    f.setInfo(childInfo({ title: "Fresh network", tokens: usage(T0, 60, 8).data.tokens }));
+    await f.monitor.reconnect();
+    expect(f.monitor.state().children.ses_child).toMatchObject({ title: "Fresh network", tokens: { input: 60, output: 8, total: 68 } });
+    expect(f.monitor.state().totalExecuted).toBe(1);
+  });
+
+  it("refreshes uncertain home usage from a fresh targeted read, not the stale cache", async () => {
+    const f = monitorFixture(); await f.monitor.accept(succeeded(0, T0 + 1_000));
+    f.setCachedInfos([childInfo({ tokens: usage(T0, 500, 100).data.tokens })]);
+    await f.monitor.accept(usage(T0 + 3_000, 10, 1));
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
+    f.setInfo(childInfo({ tokens: usage(T0, 20, 2).data.tokens }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 20, output: 2, total: 22 });
+    // Reconnect can reconcile another missed change even after pending work drained.
+    f.setInfo(childInfo({ tokens: usage(T0, 30, 3).data.tokens }));
+    await f.monitor.reconnect();
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "done", tokens: { input: 30, output: 3, total: 33 } });
+  });
+
+  it("does not lose an uncertain usage refresh when its hint joins an older pending inventory", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    const old = deferred<SessionListOutput>(); f.list.mockReturnValueOnce(old.promise);
+    const refresh = f.monitor.refresh("ses_parent");
+    await f.monitor.accept(usage(T0 + 3_000, 10, 1));
+    // The hint fires while the pre-event request is still outstanding.
+    await vi.advanceTimersByTimeAsync(1_000);
+    old.resolve({ data: [childInfo({ tokens: usage(T0, 500, 100).data.tokens })], cursor: {} });
+    await refresh;
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
+    f.setInfo(childInfo({ tokens: usage(T0, 20, 2).data.tokens }));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 20, output: 2, total: 22 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("uses later activity hints to reconcile missed home changes after prior confirmation", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    f.setCachedInfos([childInfo({ time: { created: T0, updated: T0 + 50_000 } })]);
+    await f.monitor.accept(usage(T0 + 3_000));
+    f.setInfo(childInfo({ tokens: usage(T0, 50, 5).data.tokens }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 50, output: 5, total: 55 });
+    f.setInfo(childInfo({ title: "Missed update", tokens: usage(T0, 60, 6).data.tokens }));
+    await f.monitor.accept({ id: "idle_hint", created: T0 + 4_000, type: "session.idle", data: { sessionID: "ses_child" } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.monitor.state().children.ses_child).toMatchObject({ status: "running", title: "Missed update",
+      tokens: { input: 60, output: 6, total: 66 } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("replaces fresh usage omissions without reviving the prior event or cached categories", async () => {
+    const f = monitorFixture(); await f.monitor.accept(started(0, T0));
+    await f.monitor.accept(usage(T0 + 3_000));
+    f.setCachedInfos([childInfo({ time: { created: T0, updated: T0 + 50_000 } })]);
+    f.setInfo(childInfo({ tokens: usage(T0, Number.NaN, 2).data.tokens }));
+    await f.monitor.refresh("ses_parent");
+    await f.monitor.accept(usage(T0 + 3_000, 900, 900));
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: undefined, output: 2, total: 2 });
+    f.setInfo(childInfo({ tokens: usage(T0, -1, Number.POSITIVE_INFINITY).data.tokens }));
+    await f.monitor.refresh("ses_parent");
+    await f.monitor.accept(succeeded(1, T0 + 4_000));
+    expect(f.monitor.state().children.ses_child.tokens).toBeUndefined();
+  });
+
+  it("retries a failed home metadata read without reverting the accepted usage or leaking after dispose", async () => {
+    const f = monitorFixture(); await f.monitor.accept(succeeded(0, T0 + 1_000));
+    f.get.mockRejectedValueOnce(new Error("PRIVATE"));
+    await f.monitor.accept(usage(T0 + 3_000, 10, 1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(f.monitor.stale()).toBe(true);
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
+    const pending = deferred<SessionInfo>(); f.get.mockReturnValueOnce(pending.promise);
+    await vi.advanceTimersByTimeAsync(1_000);
+    f.monitor.dispose(); f.onChange.mockClear(); f.onIssue.mockClear();
+    pending.resolve(childInfo({ tokens: usage(T0, 20, 2).data.tokens }));
+    await vi.runAllTimersAsync();
+    expect(f.onChange).not.toHaveBeenCalled(); expect(f.onIssue).not.toHaveBeenCalled();
+    expect(f.monitor.state().children.ses_child.tokens).toEqual({ input: 10, output: 1, total: 11 });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

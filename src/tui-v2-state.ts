@@ -30,7 +30,9 @@ type Execution = {
   shutdown?: boolean;
   hydrated?: boolean;
 };
-type Observed<T> = { at: number; value: T };
+// Only events and fresh reads establish these values. Cache clocks are not
+// causal watermarks for either durable metadata or unsequenced usage events.
+type Observed<T> = { revision: number; value: T };
 interface Tracked {
   revision: number;
   executionRevision: number;
@@ -40,9 +42,11 @@ interface Tracked {
   retired?: boolean;
   execution?: Execution;
   needsRefresh?: boolean;
-  title?: Observed<string>;
-  agent?: Observed<string>;
-  model?: Observed<ModelRef>;
+  metadataPending?: boolean;
+  usageCreated?: number;
+  title?: Observed<string | undefined>;
+  agent?: Observed<string | undefined>;
+  model?: Observed<ModelRef | undefined>;
   usage?: Observed<ChildTokenState | undefined>;
 }
 
@@ -161,30 +165,36 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     }
   }
 
-  function applyMetadata(info: SessionInfo, item: Tracked) {
+  function applyMetadata(info: SessionInfo, item: Tracked, readRevision?: number) {
     const row = current.children[info.id];
     if (!row) return;
     // Cache access is by session, never the launch directory or session location.
     const assistant = input.cache.message.list(info.id).filter(message => message.type === "assistant")
       .sort((a, b) => b.time.created - a.time.created)[0];
-    const latest = <T>(observed: Observed<T> | undefined, value: T, at = info.time.updated): T =>
-      observed && observed.at >= at ? observed.value : value;
-    const model = latest(item.model, info.model ?? assistant?.model);
+    // A network reconciliation started after an event may discover missed
+    // changes. A cache read (no revision) or an older request cannot undo it.
+    const reconcile = <T>(observed: Observed<T> | undefined, value: T): Observed<T> | undefined =>
+      readRevision !== undefined && (!observed || observed.revision <= readRevision)
+        ? { revision: readRevision, value } : observed;
+    item.title = reconcile(item.title, info.title);
+    item.agent = reconcile(item.agent, info.agent);
+    item.model = reconcile(item.model, info.model);
+    item.usage = reconcile(item.usage, tokens(info.tokens));
+    if (readRevision !== undefined && item.revision <= readRevision) item.metadataPending = false;
+    const model = item.model ? item.model.value : info.model ?? assistant?.model;
     upsertChildDetails(current, info.id, {
-      title: latest(item.title, info.title), agentName: latest(item.agent, info.agent ?? assistant?.agent),
+      title: item.title ? item.title.value : info.title,
+      agentName: item.agent ? item.agent.value : info.agent ?? assistant?.agent,
       updatedAt: row.updatedAt,
     });
     setChildModel(current, info.id, model ? {
       providerID: model.providerID, modelID: model.id, variant: model.variant,
     } : undefined);
-    if (!item.usage || info.time.updated > item.usage.at) {
-      item.usage = { at: info.time.updated, value: tokens(info.tokens) };
-    }
     // V1's details helper merges tokens; V2 usage is a replacement, including omissions.
-    current.children[info.id].tokens = item.usage.value;
+    current.children[info.id].tokens = item.usage ? item.usage.value : tokens(info.tokens);
   }
 
-  function hydrate(info: SessionInfo, active: boolean, readRevision: number) {
+  function hydrate(info: SessionInfo, active: boolean, readRevision: number, metadataReadRevision?: number) {
     if (!info.parentID) return;
     if (!tracked.has(info.id) && !active && !(info.outcome && info.time.idle !== undefined)) return;
     const item = record(info.id);
@@ -204,15 +214,15 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     if (active && item.revision > readRevision && current.children[info.id]) {
       applyExecution(info.id, item);
     } else {
-      insert(info, item);
+      insert(info, item, metadataReadRevision);
     }
   }
-  function insert(info: SessionInfo, item: Tracked) {
+  function insert(info: SessionInfo, item: Tracked, metadataReadRevision?: number) {
     if (!info.parentID || item.deleted || !item.execution) return;
     item.retired = false;
     upsertRunningChild(current, { id: info.id, parentID: info.parentID, title: info.title ?? info.id,
       source: "session", targetSessionID: info.id, startedAt: iso(info.time.created), updatedAt: iso(item.execution.at) });
-    applyMetadata(info, item);
+    applyMetadata(info, item, metadataReadRevision);
     applyExecution(info.id, item);
   }
 
@@ -230,7 +240,8 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
         if (!valid()) return;
         Object.keys(activity).forEach(id => activeIDs.add(id));
         const ids = [...new Set([...activeIDs, ...[...tracked].filter(([id, item]) =>
-          !item.deleted && !item.retired && item.execution && !current.children[id]).map(([id]) => id)])];
+          !item.deleted && !item.retired && item.execution &&
+          (!current.children[id] || (!selectedParent && item.metadataPending))).map(([id]) => id)])];
         let offset = 0;
         await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
           while (offset < ids.length && valid()) {
@@ -242,8 +253,11 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
             };
             if (!unchanged()) continue;
             try {
-              const info = input.cache.get(id) ?? await detail(id, unchanged);
-              if (info && unchanged()) { hydrate(info, activeIDs.has(id), readRevision); publish(); }
+              const cached = tracked.get(id)?.metadataPending ? undefined : input.cache.get(id);
+              const info = cached ?? await detail(id, unchanged);
+              if (info && unchanged()) {
+                hydrate(info, activeIDs.has(id), readRevision, cached ? undefined : readRevision); publish();
+              }
             } catch { if (unchanged()) readFailed = true; }
           }
         }));
@@ -261,7 +275,7 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
           const page = await input.session.list({ parentID: selectedParent, limit: 100, cursor });
           if (!valid()) return;
           for (const info of page.data) {
-            if (info.parentID === selectedParent) hydrate(info, activeIDs.has(info.id), readRevision);
+            if (info.parentID === selectedParent) hydrate(info, activeIDs.has(info.id), readRevision, readRevision);
           }
           publish();
           cursor = page.cursor.next ?? undefined;
@@ -278,6 +292,10 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
       clearTimeout(retryTimer); retryTimer = undefined;
       publish();
     }
+    // A hint may have joined this older flight. Only newer pending observations
+    // need a follow-up; an unchanged/missing result must not create a polling loop.
+    if ([...tracked.values()].some(item => !item.deleted && !item.retired &&
+      item.metadataPending && item.revision > readRevision)) requestHint();
   }
 
   function refresh(selectedParent?: string): Promise<void> {
@@ -309,8 +327,11 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
       case "session.status": case "session.idle":
       case "session.step.ended": case "session.step.failed":
       case "session.tool.success": case "session.tool.failed":
-      case "session.retry.scheduled":
+      case "session.retry.scheduled": {
+        const item = tracked.get(event.data.sessionID);
+        if (item && !item.deleted && !item.retired) item.metadataPending = true;
         requestHint(); return;
+      }
       case "session.created": case "session.execution.started":
       case "session.execution.succeeded": case "session.execution.failed":
       case "session.execution.interrupted": case "session.deleted":
@@ -324,12 +345,15 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     if ("durable" in event) {
       if (item.seq !== undefined && event.durable.seq <= item.seq) return;
       item.seq = event.durable.seq;
-    } else if (item.usage && event.created <= item.usage.at) return;
+    } else if (item.usageCreated !== undefined && event.created <= item.usageCreated) return;
     // A missed terminal read can precede delivery of its earlier start event.
     // Only idle outcome time supplies this boundary, never metadata time.updated.
     if (event.type.startsWith("session.execution.") && item.execution?.hydrated && event.created < item.execution.at) return;
     item.retired = false;
     // Reserve ordering before the first await, including sequence zero.
+    // Identity reads may reconcile prior fields, but cannot supersede the event
+    // that requested the identity, even though the network call follows it.
+    const metadataReadRevision = revision;
     item.revision = ++revision;
     if (event.type.startsWith("session.execution.") || event.type === "session.deleted") {
       item.executionRevision = item.revision;
@@ -350,10 +374,19 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
       case "session.execution.interrupted":
         item.execution = { status: "error", at: event.created, interrupted: true, shutdown: event.data.reason === "shutdown" };
         item.needsRefresh = false; break;
-      case "session.renamed": item.title = { at: event.created, value: event.data.title }; break;
-      case "session.agent.selected": item.agent = { at: event.created, value: event.data.agent }; break;
-      case "session.model.selected": item.model = { at: event.created, value: event.data.model }; break;
-      case "session.usage.updated": item.usage = { at: event.created, value: tokens(event.data.tokens) }; break;
+      case "session.renamed":
+        item.title = { revision: item.revision, value: event.data.title }; item.metadataPending = true; break;
+      case "session.agent.selected":
+        item.agent = { revision: item.revision, value: event.data.agent }; item.metadataPending = true; break;
+      case "session.model.selected":
+        item.model = { revision: item.revision, value: event.data.model }; item.metadataPending = true; break;
+      case "session.usage.updated":
+        item.usageCreated = event.created;
+        item.usage = { revision: item.revision, value: tokens(event.data.tokens) };
+        item.metadataPending = true;
+        // Usage timestamps order events, not snapshots. Confirm uncertain ordering
+        // with the existing coalesced refresh, never a max/sum of cumulative counts.
+        requestHint(); break;
     }
     try {
       // Known identity needs no network round trip to reflect an authoritative event.
@@ -370,12 +403,13 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
         }
         applyExecution(id, item); publish(); return;
       }
-      const info = input.cache.get(id) ?? await detail(id, valid);
+      const cached = input.cache.get(id);
+      const info = cached ?? await detail(id, valid);
       if (!valid() || !info) return;
       if (!info.parentID) { tracked.delete(id); return; }
       // An execution event wins over persisted idle; creation/metadata may discover missed execution.
-      if (!item.execution) hydrate(info, false, item.revision);
-      else insert(info, item);
+      if (!item.execution) hydrate(info, false, item.revision, cached ? undefined : metadataReadRevision);
+      else insert(info, item, cached ? undefined : metadataReadRevision);
       // The generation check above still owns this result. Creation without any
       // execution evidence needs no retained row or long-lived metadata record.
       if (!item.execution && !current.children[id]) item.retired = true;
@@ -389,6 +423,7 @@ export function createV2Monitor(input: V2MonitorInput): V2Monitor {
     epoch++; clearTimers(); retries = 0; backoff = undefined; failed = true;
     for (const [id, item] of tracked) {
       input.cache.invalidate(id);
+      if (!item.deleted && !item.retired && item.execution) item.metadataPending = true;
       if (item.execution?.status === "running") item.needsRefresh = true;
     }
     publish();
