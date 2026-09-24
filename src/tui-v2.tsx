@@ -27,10 +27,13 @@ async function initializeV2(context: Context): Promise<Plugin.Cleanup> {
   const subscriptions: Array<() => void> = [];
   const claims: Array<() => void> = [];
   const reported = new Set<string>();
+  function showToast(message: string, variant: "info" | "warning") {
+    try { context.ui.toast.show({ message, variant }); } catch { /* Host may already be closing. */ }
+  }
   function report(message: string) {
     if (reported.has(message)) return;
     reported.add(message);
-    try { context.ui.toast.show({ message, variant: "warning" }); } catch { /* Host may already be closing. */ }
+    showToast(message, "warning");
   }
   function issue(message: string) { if (!disposed) report(message); }
   function cleanup(): Promise<void> {
@@ -87,7 +90,7 @@ async function initializeV2(context: Context): Promise<Plugin.Cleanup> {
       const ownedFocus = focus = createV2SidebarFocus({
         renderer: context.renderer, view: ownedView, route: routeKey,
         mode: () => context.keymap.mode.current(),
-        unavailable: () => { if (!disposed) context.ui.toast.show({ message: t("unavailable"), variant: "info" }); },
+        unavailable: () => { if (!disposed) showToast(t("unavailable"), "info"); },
       });
       const ownedWriter = writer = createV2SnapshotWriter({
         ...resolveV2SnapshotPaths(), onIssue: () => issue("Subagents: Snapshot unavailable"),
@@ -136,6 +139,7 @@ async function initializeV2(context: Context): Promise<Plugin.Cleanup> {
           const target = ownedView.target();
           if (!target || target.isDestroyed || !target.visible) return false;
           ownedFocus.request("keyboard");
+          if (!ownedView.isListFocused()) return false;
         }
       };
       function Commands() {
@@ -156,6 +160,8 @@ async function initializeV2(context: Context): Promise<Plugin.Cleanup> {
             run: () => { if (!disposed && !ownedView.toggleCompletedHistory()) issue(t("unavailable")); } },
         ] }));
         context.keymap.layer(() => ({ mode: "base", priority: 100, commands: [{
+          // V2 2.0.11 forwards the keyboard event only to named commands.
+          id: "subagent-statusline.internal.toggle-list-focus",
           bind: "alt+b", run: (_input, event) => {
             if (event && (event.ctrl || event.shift || event.super || event.hyper ||
               !(event.meta || event.option) || event.name.toLowerCase() !== "b")) return false;
@@ -168,6 +174,7 @@ async function initializeV2(context: Context): Promise<Plugin.Cleanup> {
       const registerListKeys: SidebarViewProps["registerListKeys"] = ({ target, onKeyDown }) => {
         context.keymap.layer(() => ({ mode: "base", priority: 100, target, commands:
           ["j", "k", "up", "down", "return", "c", "h", "l", "left", "right", "escape", "alt+b"].map(bind => ({
+            id: `subagent-statusline.internal.list.${bind.replace("+", "-")}`,
             bind, run: (_input?: string, event?: KeyEvent) => {
               if (disposed || context.keymap.mode.current() !== "base" || !ownedView.isListFocused() || !event) return false;
               onKeyDown(event);

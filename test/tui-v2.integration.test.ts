@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeyEvent, TextareaRenderable, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core";
 import v2Plugin from "../src/tui-v2.js";
-import { createV2ContextHarness, hasNativeFFI } from "./helpers/v2-context.js";
+import { createV2ContextHarness, hasNativeFFI, invokeV2KeyboardCommand } from "./helpers/v2-context.js";
 import { childInfo, deferred, deleted, header, shutdown, started, T0 } from "./helpers/v2-fixtures.js";
 
 vi.mock("node:fs/promises", async importOriginal => {
@@ -38,20 +38,53 @@ function command(host: Host, suffix: string) {
   return found[0];
 }
 function list(host: Host) { return host.layers().find(layer => layer.target)?.target?.() as BoxRenderable | undefined; }
-function key(host: Host, name: string, modifiers: Partial<Pick<KeyEvent, "ctrl" | "shift" | "meta" | "option">> = {}, binding = name) {
-  const event = new KeyEvent({ name, raw: name, sequence: name, ctrl: false, shift: false,
+function keyEvent(name: string, modifiers: Partial<Pick<KeyEvent, "ctrl" | "shift" | "meta" | "option">> = {}) {
+  return new KeyEvent({ name, raw: name, sequence: name, ctrl: false, shift: false,
     meta: false, option: false, number: false, eventType: "press", source: "raw", ...modifiers });
-  // Invoke the real registered callback with a real KeyEvent. The recorder does
-  // not simulate host dispatch; mode/target/binding declarations are asserted separately.
+}
+function key(host: Host, name: string, modifiers: Partial<Pick<KeyEvent, "ctrl" | "shift" | "meta" | "option">> = {}, binding = name) {
+  const event = keyEvent(name, modifiers);
   const layer = host.layers().find(item => item.target);
-  layer?.commands?.find(item => item.bind === binding)?.run(undefined, event);
+  const registered = layer?.commands?.find(item => item.bind === binding);
+  if (!registered) throw new Error(`Missing list binding: ${binding}`);
+  invokeV2KeyboardCommand(registered, event);
   return event;
 }
-function altB(host: Host) {
-  return host.layers().find(layer => layer.mode === "base" && !layer.target)?.commands?.find(item => item.bind === "alt+b")?.run();
+function altB(host: Host, event = keyEvent("b", { meta: true })) {
+  const registered = host.layers().find(layer => layer.mode === "base" && !layer.target)?.commands?.find(item => item.bind === "alt+b");
+  if (!registered) throw new Error("Missing base Alt+B binding");
+  return invokeV2KeyboardCommand(registered, event);
 }
 
 describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)", () => {
+  it("receives host keyboard events through named nonpalette bindings and consumes list Esc exactly once", async () => {
+    const { host } = await fixture(); await start(host);
+    const entry = keyEvent("b", { meta: true });
+    const entryPrevent = vi.spyOn(entry, "preventDefault"), entryStop = vi.spyOn(entry, "stopPropagation");
+    expect(altB(host, entry)).not.toBe(false);
+    expect(list(host)?.focused).toBe(true);
+    expect(entryPrevent).toHaveBeenCalledOnce(); expect(entryStop).toHaveBeenCalledOnce();
+
+    const esc = keyEvent("escape");
+    const prevent = vi.spyOn(esc, "preventDefault"), stop = vi.spyOn(esc, "stopPropagation");
+    const exit = host.layers().find(layer => layer.target)?.commands?.find(item => item.bind === "escape");
+    expect(exit).toBeDefined();
+    expect(invokeV2KeyboardCommand(exit!, esc)).not.toBe(false);
+    expect(prevent).toHaveBeenCalledOnce(); expect(stop).toHaveBeenCalledOnce();
+    expect(esc.defaultPrevented).toBe(true); expect(esc.propagationStopped).toBe(true);
+    expect(host.renderer.currentFocusedEditor).toBe(host.prompt);
+
+    const palette = host.layers().flatMap(layer => layer.commands ?? []).filter(item => item.palette);
+    expect(palette.map(item => item.id).sort()).toEqual([
+      "subagent-statusline.focus-sidebar-list", "subagent-statusline.toggle-completed-history",
+      "subagent-statusline.toggle-sidebar-section",
+    ]);
+    expect(palette.every(item => item.bind === false)).toBe(true);
+    const keyboard = host.layers().filter(layer => layer.mode === "base").flatMap(layer => layer.commands ?? []);
+    expect(keyboard.every(item => item.id?.startsWith("subagent-statusline.internal.") && !item.palette && !item.slash)).toBe(true);
+    expect(new Set(keyboard.map(item => item.id)).size).toBe(keyboard.length);
+  });
+
   it("owns additive slots, typed subscriptions and component-only layers across remount and cleanup", async () => {
     const { host } = await fixture(); const cleanup = await start(host);
     expect(v2Plugin.id).toBe("subagent-statusline.tui");
@@ -72,6 +105,60 @@ describe.skipIf(!hasNativeFFI)("V2 mounted setup integration (requires node:ffi)
     host.mount(); expect(command(host, "focus-sidebar-list")).toBeDefined();
     await cleanup(); await cleanup();
     expect(host.activeHandlers()).toBe(0); expect(host.activeClaims()).toBe(0); expect(host.layers()).toHaveLength(0);
+  });
+
+  it("lets base Alt+B fall through when a live list has no safe return editor, but consumes transfer and release", async () => {
+    const { host } = await fixture(); await start(host);
+    expect(list(host)?.isDestroyed).toBe(false);
+    host.prompt.blur();
+    expect(host.renderer.currentFocusedRenderable).toBeNull();
+    expect(host.renderer.currentFocusedEditor).toBeNull();
+    const refused = keyEvent("b", { meta: true });
+    expect(altB(host, refused)).toBe(false);
+    expect(refused.defaultPrevented).toBe(false); expect(refused.propagationStopped).toBe(false);
+    expect(list(host)?.focused).toBe(false);
+
+    host.prompt.focus();
+    const accepted = keyEvent("b", { meta: true });
+    expect(altB(host, accepted)).not.toBe(false);
+    expect(accepted.defaultPrevented).toBe(true); expect(accepted.propagationStopped).toBe(true);
+    expect(list(host)?.focused).toBe(true);
+    const released = keyEvent("b", { meta: true });
+    expect(altB(host, released)).not.toBe(false);
+    expect(released.defaultPrevented).toBe(true); expect(released.propagationStopped).toBe(true);
+    expect(host.renderer.currentFocusedEditor).toBe(host.prompt);
+  });
+
+  it.each(["immediate", "deferred"])("contains %s unavailable feedback failure without duplicates or late disposed feedback", async delivery => {
+    const { host } = await fixture(); const cleanup = await start(host);
+    vi.useFakeTimers();
+    const request = command(host, "focus-sidebar-list");
+    host.toast.mockImplementation(() => { throw new Error("PRIVATE toast body"); });
+    if (delivery === "immediate") {
+      host.setSidebar(false);
+      expect(() => request.run()).not.toThrow();
+    } else {
+      host.setMode("modal"); request.run();
+      await vi.advanceTimersByTimeAsync(299);
+      expect(host.toast).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(host.toast).toHaveBeenCalledOnce();
+    expect(host.toast).toHaveBeenLastCalledWith({ message: "Subagent list unavailable", variant: "info" });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(host.toast).toHaveBeenCalledOnce();
+
+    // A fresh user request still gets one feedback attempt, not lifetime suppression.
+    host.setSidebar(false);
+    expect(() => request.run()).not.toThrow();
+    expect(host.toast).toHaveBeenCalledTimes(2);
+    host.setSidebar(true); host.setMode("modal"); request.run();
+    await cleanup();
+    request.run();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(host.toast).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(host.toast.mock.calls)).not.toContain("PRIVATE");
+    vi.useRealTimers();
   });
 
   it("defers palette focus, preserves dialog input, returns once on Esc and releases before child navigation", async () => {

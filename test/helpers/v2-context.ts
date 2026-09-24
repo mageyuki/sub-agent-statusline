@@ -1,6 +1,6 @@
-import type { Context, KeymapLayer, Route, SlotClaim } from "@opencode/plugin/tui/context";
+import type { Context, KeymapCommand, KeymapLayer, Route, SlotClaim } from "@opencode/plugin/tui/context";
 import type { OpenCodeEvent, SessionInfo } from "@opencode/client";
-import { RGBA, type TextareaRenderable } from "@opentui/core";
+import { RGBA, type KeyEvent, type TextareaRenderable } from "@opentui/core";
 import { createElement, insert, setProp, testRender } from "@opentui/solid";
 import { createComponent, createSignal, For, onCleanup, Show } from "solid-js";
 import { vi } from "vitest";
@@ -9,6 +9,13 @@ import { childInfo } from "./v2-fixtures.js";
 export const hasNativeFFI = (() => {
   try { return Boolean(process.getBuiltinModule("node:ffi")); } catch { return false; }
 })();
+
+// Pinned OpenCode 2.0.11 context/keymap.tsx createLayer invokes inline run()
+// without arguments; only named commands get run(input, context.event).
+// Record that argument contract only: no matching, precedence or host dispatcher.
+export function invokeV2KeyboardCommand(command: KeymapCommand, event: KeyEvent) {
+  return command.id ? command.run(undefined, event) : command.run();
+}
 
 // This is a strict recorder of the small public boundary the plugin consumes,
 // not a host dispatcher. Every supplied method is checked against official types;
