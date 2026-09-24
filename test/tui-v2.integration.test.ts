@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeyEvent, TextareaRenderable, type BoxRenderable, type ScrollBoxRenderable } from "@opentui/core";
@@ -16,7 +17,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function fixture() {
   // Keep retention fixtures deterministic without faking native renderer timers.
   vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(T0 + 86_400_000);
-  const dir = await mkdtemp("/tmp/opencode/subagent-v2-setup-");
+  const dir = await mkdtemp(join(tmpdir(), "subagent-v2-setup-"));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const statePath = join(dir, "state.json");
   process.env.OPENCODE_SUBAGENT_STATUSLINE_STATE = statePath;

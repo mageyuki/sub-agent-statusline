@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createV2SnapshotWriter, resolveV2SnapshotPaths, type V2SnapshotWriter } from "./tui-v2-snapshot.js";
@@ -16,7 +17,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
 });
 async function fixture() {
-  const dir = await mkdtemp("/tmp/opencode/subagent-v2-snapshot-"); directories.push(dir);
+  const dir = await mkdtemp(join(tmpdir(), "subagent-v2-snapshot-")); directories.push(dir);
   const statePath = join(dir, "v2", "state.json");
   const textPath = join(dir, "v2", "status.txt");
   const onIssue = vi.fn();

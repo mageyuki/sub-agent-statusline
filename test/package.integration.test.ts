@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -77,8 +78,7 @@ async function graph(entry: string, includeLazy = true) {
 }
 
 beforeAll(async () => {
-  await mkdir("/tmp/opencode", { recursive: true });
-  scratch = await mkdtemp("/tmp/opencode/subagent-package-");
+  scratch = await mkdtemp(join(tmpdir(), "subagent-package-"));
   // pnpm 11 pack reads ignoreScripts but exposes it only as a config option.
   await exec("pnpm", ["pack", "--config.ignore-scripts=true", "--pack-destination", scratch], {
     cwd: project, env: { ...process.env, npm_config_ignore_scripts: "true" },

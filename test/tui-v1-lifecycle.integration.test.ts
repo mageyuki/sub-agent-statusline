@@ -3,6 +3,7 @@ import { BoxRenderable, RGBA, TextRenderable, type Renderable } from "@opentui/c
 import { createElement, insert, testRender } from "@opentui/solid";
 import { createComponent, createMemo, createSignal, Show } from "solid-js";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import v1Plugin from "../src/tui-v1.js";
@@ -31,7 +32,7 @@ afterEach(async () => {
 async function fixture() {
   // Advance production maintenance without replacing native renderer timers.
   vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
-  const dir = await mkdtemp("/tmp/opencode/subagent-v1-slot-");
+  const dir = await mkdtemp(join(tmpdir(), "subagent-v1-slot-"));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   process.env.OPENCODE_SUBAGENT_STATUSLINE_STATE = join(dir, "state.json");
   vi.stubEnv("XDG_DATA_HOME", dir);

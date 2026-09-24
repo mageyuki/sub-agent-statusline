@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -49,7 +50,7 @@ function child(overrides: Partial<ChildSessionState> = {}): ChildSessionState {
 
 describe("state", () => {
   it("a false commit guard performs no filesystem work", async () => {
-    const dir = await mkdtemp("/tmp/opencode/subagent-state-guard-");
+    const dir = await mkdtemp(join(tmpdir(), "subagent-state-guard-"));
     try {
       const statePath = join(dir, "absent", "state.json");
       await saveState(statePath, createEmptyState(), { shouldCommit: () => false });
@@ -59,7 +60,7 @@ describe("state", () => {
   });
 
   it.each(["state", "text"])("cancels %s immediately before rename and removes only its owned temp file", async kind => {
-    const dir = await mkdtemp("/tmp/opencode/subagent-state-guard-");
+    const dir = await mkdtemp(join(tmpdir(), "subagent-state-guard-"));
     try {
       const path = join(dir, kind === "state" ? "state.json" : "status.txt");
       await writeFile(path, "old snapshot");
