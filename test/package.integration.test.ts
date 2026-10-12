@@ -106,6 +106,9 @@ it("preserves public exports and ships both private adapters and declarations", 
     expect((value as string).trim().length).toBeGreaterThan(0);
     return value as string;
   }
+  // The strict-consumer test below copies the pack under a hardcoded scoped path,
+  // so only this assertion catches a manifest name regression.
+  expect(manifest.name).toBe("@mageyuki/opencode-subagent-statusline");
   expect(manifest.exports).toEqual({
     ".": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },
     "./tui": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },

@@ -9,7 +9,7 @@ See delegated work without leaving OpenCode. **Subagent Monitor** is an MIT-lice
 [![GitHub stars](https://img.shields.io/github/stars/mageyuki/sub-agent-statusline?style=flat-square)](https://github.com/mageyuki/sub-agent-statusline)
 [![license](https://img.shields.io/github/license/mageyuki/sub-agent-statusline?style=flat-square)](LICENSE)
 
-> **Unofficial fork.** `@mageyuki/opencode-subagent-statusline` is an unofficial, independently published fork of [`opencode-subagent-statusline`](https://github.com/Joaquinvesapa/sub-agent-statusline) by Joaquin Vesco Aparicio ([Joaquinvesapa](https://github.com/Joaquinvesapa)); it is not affiliated with or endorsed by the upstream author. Its code is derived from upstream, and its divergence is the OpenCode V2 (2.0.11) compatibility bridge pinned in this repository. The version starts at `0.7.0` for this scoped name and does not continue the upstream `opencode-subagent-statusline` 1.x version line. Source and issues: [mageyuki/sub-agent-statusline](https://github.com/mageyuki/sub-agent-statusline). Licensed under MIT with the original copyright notice preserved in [LICENSE](LICENSE).
+> **Unofficial fork.** `@mageyuki/opencode-subagent-statusline` is an unofficial, independently maintained fork of [`opencode-subagent-statusline`](https://github.com/Joaquinvesapa/sub-agent-statusline) by Joaquin Vesco Aparicio ([Joaquinvesapa](https://github.com/Joaquinvesapa)); it is not affiliated with or endorsed by the upstream author. Its code is derived from upstream, and its divergence is the OpenCode V2 (2.0.11) compatibility bridge pinned in this repository. The scoped name starts at `0.7.0` and does not continue the upstream `opencode-subagent-statusline` 1.x version line. `0.7.0` is a prepared candidate that has not been published to npm. Source and issues: [mageyuki/sub-agent-statusline](https://github.com/mageyuki/sub-agent-statusline). Licensed under MIT with the original copyright notice preserved in [LICENSE](LICENSE).
 
 ## Install
 
@@ -26,7 +26,7 @@ Register the TUI in global `~/.config/opencode/cli.json` (or `$XDG_CONFIG_HOME/o
 }
 ```
 
-The local directory must directly contain `tui.js` and its adjacent adapters; neither the package root nor a direct `tui.js` file is the V2 registration form. Keep the complete installed package/dependencies. For a published release containing this dual bridge, the named-package form is `"plugins": ["@mageyuki/opencode-subagent-statusline"]`; root and `/tui` exports are unchanged. These instructions do not mean this development build has been published to npm.
+The local directory must directly contain `tui.js` and its adjacent adapters; neither the package root nor a direct `tui.js` file is the V2 registration form. Keep the complete installed package/dependencies. For a published release containing this dual bridge, the named-package form is `"plugins": ["@mageyuki/opencode-subagent-statusline@0.7.0"]` (an illustrative future form, not an active configuration); root and `/tui` exports are unchanged. These instructions do not mean this development build has been published to npm.
 
 Add only this entry to your existing configuration, preserving unrelated plugins/settings. Register one `subagent-statusline.tui` identity. Configuration can reload immediately: first keep a restrictive-permission backup and a known working artifact for rollback. Remove only the added entry to roll back, or restore the backup only if no other edits occurred. Any normal-TUI restart is user-controlled.
 
@@ -110,9 +110,9 @@ Click `Σ` in the sidebar aggregate row to toggle completed history with the mou
 When a child session is opened from the sidebar, return with OpenCode `Up` (`session_parent` on V1, `session.parent` on V2) to type in the parent prompt. V2 leaves focus to the newly mounted host editor rather than refocusing an old editor or the list. Dialogs and hidden sidebars must not capture list input; `Alt/Option+Left` retains host word navigation.
 
 <details>
-<summary>Stable 1.x public contract</summary>
+<summary>Stable public contract</summary>
 
-For 1.x releases, the stable user-facing contract is:
+For releases of this scoped package line, including the `0.7.0` candidate, the stable user-facing contract is:
 
 - npm package name: `@mageyuki/opencode-subagent-statusline`;
 - TUI plugin entrypoints: `@mageyuki/opencode-subagent-statusline` and `@mageyuki/opencode-subagent-statusline/tui`;
@@ -122,7 +122,7 @@ For 1.x releases, the stable user-facing contract is:
 - local privacy and persistence behavior described in this README;
 - Node, peer dependency, and install contract declared in `package.json`.
 
-Experimental or internal surfaces may change in 1.x without a SemVer-major bump:
+Experimental or internal surfaces may change without a SemVer-major bump:
 
 - `@mageyuki/opencode-subagent-statusline/runtime`, a **V1-only** diagnostic/file-output experiment, not a V2 requirement;
 - diagnostic environment variables;
