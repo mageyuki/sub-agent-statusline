@@ -27,7 +27,7 @@ The stale-tag policy is intentionally strict: the tag target must equal `origin/
 
 ## One-Time Reconciliation
 
-The repository currently has historical drift: `package.json` reports `0.7.0`, while the latest stable tag and npm `latest` are `1.3.0`. The release skill and workflow fail closed rather than choosing a version silently. Reconcile this in a reviewed release-preparation PR before the first release under this architecture.
+This repository publishes under the scoped name `@mageyuki/opencode-subagent-statusline`, a new npm package distinct from upstream `opencode-subagent-statusline` (whose 1.x tags and npm versions are not this package's history). `package.json` starts the scoped line at `0.7.0`. Before the first tag, confirm that `0.7.0` is absent from npm and from this repository's stable tags; the release skill and workflow fail closed rather than choosing a version silently.
 
 ## Recovery
 

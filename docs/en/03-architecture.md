@@ -61,8 +61,8 @@ Public source: `src/tui.tsx`; the following legacy responsibilities belong to `s
 This is the package's main entrypoint:
 
 ```txt
-opencode-subagent-statusline
-opencode-subagent-statusline/tui
+@mageyuki/opencode-subagent-statusline
+@mageyuki/opencode-subagent-statusline/tui
 ```
 
 Main responsibilities:
@@ -84,7 +84,7 @@ Source: `src/index.ts`
 Published as:
 
 ```txt
-opencode-subagent-statusline/runtime
+@mageyuki/opencode-subagent-statusline/runtime
 ```
 
 This is a lower-level mode. It does not render the TUI sidebar. Instead, it:

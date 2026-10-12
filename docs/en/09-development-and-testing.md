@@ -1,6 +1,6 @@
 # Development and testing
 
-This guide explains how to set up the project locally, which commands to run, and how to think about tests for `opencode-subagent-statusline`.
+This guide explains how to set up the project locally, which commands to run, and how to think about tests for `@mageyuki/opencode-subagent-statusline`.
 
 Practical rule:
 
@@ -62,9 +62,9 @@ Host API/theme, Solid and OpenTUI are external singletons. `@opencode/client` is
 Package entrypoints:
 
 ```txt
-opencode-subagent-statusline
-opencode-subagent-statusline/tui
-opencode-subagent-statusline/runtime
+@mageyuki/opencode-subagent-statusline
+@mageyuki/opencode-subagent-statusline/tui
+@mageyuki/opencode-subagent-statusline/runtime
 ```
 
 ## TypeScript files

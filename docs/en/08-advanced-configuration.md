@@ -25,7 +25,7 @@ Minimal content:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-statusline"]
+  "plugin": ["@mageyuki/opencode-subagent-statusline"]
 }
 ```
 
@@ -194,7 +194,7 @@ OpenCode usage.
 Runtime entrypoint:
 
 ```txt
-opencode-subagent-statusline/runtime
+@mageyuki/opencode-subagent-statusline/runtime
 ```
 
 It exports `SubagentStatusline` from the runtime bundle. Source module paths and

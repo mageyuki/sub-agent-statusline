@@ -10,7 +10,7 @@ For input issues, record whether the actual monitor list, prompt or modal owns f
 
 The remaining legacy config, event-log, DB and fallback instructions describe **V1**; do not apply those recovery mechanisms to V2.
 
-This guide covers common issues when installing, using, or developing `opencode-subagent-statusline`.
+This guide covers common issues when installing, using, or developing `@mageyuki/opencode-subagent-statusline`.
 
 General strategy:
 
@@ -31,7 +31,7 @@ Minimal configuration:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-statusline"]
+  "plugin": ["@mageyuki/opencode-subagent-statusline"]
 }
 ```
 

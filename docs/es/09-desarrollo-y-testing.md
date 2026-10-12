@@ -1,6 +1,6 @@
 # Desarrollo y testing
 
-Esta guía explica cómo preparar el proyecto localmente, qué comandos usar y cómo pensar los tests de `opencode-subagent-statusline`.
+Esta guía explica cómo preparar el proyecto localmente, qué comandos usar y cómo pensar los tests de `@mageyuki/opencode-subagent-statusline`.
 
 La regla práctica:
 
@@ -64,9 +64,9 @@ API/tema, Solid y OpenTUI del host quedan como singletons externos. `@opencode/c
 El paquete publica estos entrypoints:
 
 ```txt
-opencode-subagent-statusline
-opencode-subagent-statusline/tui
-opencode-subagent-statusline/runtime
+@mageyuki/opencode-subagent-statusline
+@mageyuki/opencode-subagent-statusline/tui
+@mageyuki/opencode-subagent-statusline/runtime
 ```
 
 ## TypeScript
