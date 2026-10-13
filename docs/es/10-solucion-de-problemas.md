@@ -10,7 +10,7 @@ Para problemas de entrada, registrá si el foco pertenece a la lista real, promp
 
 Las instrucciones legacy de configuración, logs de eventos, DB y fallback que siguen describen **V1**; no apliques esos mecanismos de recuperación a V2.
 
-Esta guía junta problemas comunes al instalar, usar o desarrollar `opencode-subagent-statusline`.
+Esta guía junta problemas comunes al instalar, usar o desarrollar `@mageyuki/opencode-subagent-statusline`.
 
 La estrategia general:
 
@@ -31,7 +31,7 @@ Configuración mínima:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-statusline"]
+  "plugin": ["@mageyuki/opencode-subagent-statusline"]
 }
 ```
 

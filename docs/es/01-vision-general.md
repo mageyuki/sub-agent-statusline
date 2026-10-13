@@ -8,7 +8,7 @@ V2 mantiene la sidebar, el resumen de inicio y los controles de la lista enfocad
 
 El pipeline detallado de eventos/wrappers que sigue describe **V1**. La integración ahora está en `src/tui-v1.tsx` y la presentación compartida en `src/tui-view.tsx`; `src/tui.tsx` es solo el puente público diferido.
 
-`opencode-subagent-statusline` es un plugin TUI para OpenCode que muestra actividad de subagentes dentro de la interfaz: subagentes corriendo, finalizados, fallidos, duración y uso de tokens/contexto cuando OpenCode expone esa información.
+`@mageyuki/opencode-subagent-statusline` es un plugin TUI para OpenCode que muestra actividad de subagentes dentro de la interfaz: subagentes corriendo, finalizados, fallidos, duración y uso de tokens/contexto cuando OpenCode expone esa información.
 
 La idea central es simple:
 
@@ -47,9 +47,9 @@ El paquete publica dos entrypoints:
 
 | Entrypoint                             | Fuente         | Uso principal                                                                            |
 | -------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- |
-| `opencode-subagent-statusline`         | `src/tui.tsx`  | Plugin TUI principal. Es el camino recomendado para usuarios.                            |
-| `opencode-subagent-statusline/tui`     | `src/tui.tsx`  | Alias explícito del plugin TUI.                                                          |
-| `opencode-subagent-statusline/runtime` | `src/index.ts` | Plugin runtime/file-based avanzado. Procesa eventos y escribe `state.json`/`status.txt`. |
+| `@mageyuki/opencode-subagent-statusline`         | `src/tui.tsx`  | Plugin TUI principal. Es el camino recomendado para usuarios.                            |
+| `@mageyuki/opencode-subagent-statusline/tui`     | `src/tui.tsx`  | Alias explícito del plugin TUI.                                                          |
+| `@mageyuki/opencode-subagent-statusline/runtime` | `src/index.ts` | Plugin runtime/file-based avanzado. Procesa eventos y escribe `state.json`/`status.txt`. |
 
 El README actual se concentra en el modo TUI, que es la experiencia principal del paquete.
 

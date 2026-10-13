@@ -1,6 +1,6 @@
 # Documentación en español
 
-Esta carpeta explica cómo funciona `opencode-subagent-statusline`: qué problema resuelve, cómo se integra con OpenCode, cómo procesa eventos de subagentes y cómo se mantiene el proyecto.
+Esta carpeta explica cómo funciona `@mageyuki/opencode-subagent-statusline`: qué problema resuelve, cómo se integra con OpenCode, cómo procesa eventos de subagentes y cómo se mantiene el proyecto.
 
 La documentación está pensada para dos públicos:
 

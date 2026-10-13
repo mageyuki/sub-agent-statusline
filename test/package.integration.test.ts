@@ -106,6 +106,9 @@ it("preserves public exports and ships both private adapters and declarations", 
     expect((value as string).trim().length).toBeGreaterThan(0);
     return value as string;
   }
+  // The strict-consumer test below copies the pack under a hardcoded scoped path,
+  // so only this assertion catches a manifest name regression.
+  expect(manifest.name).toBe("@mageyuki/opencode-subagent-statusline");
   expect(manifest.exports).toEqual({
     ".": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },
     "./tui": { types: "./dist/tui.d.ts", import: "./dist/tui.js" },
@@ -141,8 +144,8 @@ it("typechecks both packed public entries and their returns without either optio
   await mkdir(modules, { recursive: true });
   // A physical package copy avoids resolving symlinks back into this project's
   // node_modules, where both optional hosts would hide declaration leaks.
-  await cp(packedRoot, join(modules, "opencode-subagent-statusline"), { recursive: true });
-  expect(await readdir(modules)).toEqual(["opencode-subagent-statusline"]);
+  await cp(packedRoot, join(modules, "@mageyuki", "opencode-subagent-statusline"), { recursive: true });
+  expect(await readdir(modules)).toEqual(["@mageyuki"]);
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   await writeFile(join(consumer, "tsconfig.json"), JSON.stringify({
     compilerOptions: {
@@ -152,8 +155,8 @@ it("typechecks both packed public entries and their returns without either optio
     files: ["consumer.ts"],
   }));
   await writeFile(join(consumer, "consumer.ts"), `
-    import root from "opencode-subagent-statusline";
-    import tui from "opencode-subagent-statusline/tui";
+    import root from "@mageyuki/opencode-subagent-statusline";
+    import tui from "@mageyuki/opencode-subagent-statusline/tui";
 
     // The public loader boundary transports opaque host-provided arguments.
     // Checking each return also catches an optional host leaking via Cleanup.

@@ -1,12 +1,16 @@
 {
-  "name": "opencode-subagent-statusline",
+  "name": "@mageyuki/opencode-subagent-statusline",
   "version": "0.7.0",
-  "description": "OpenCode plugin that exposes subagent session statusline state",
+  "description": "Unofficial fork of opencode-subagent-statusline: OpenCode plugin that exposes subagent session statusline state, with a V2 bridge",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Joaquinvesapa/sub-agent-statusline"
+    "url": "git+https://github.com/mageyuki/sub-agent-statusline.git"
   },
+  "bugs": {
+    "url": "https://github.com/mageyuki/sub-agent-statusline/issues"
+  },
+  "homepage": "https://github.com/mageyuki/sub-agent-statusline#readme",
   "packageManager": "pnpm@11.2.2",
   "engines": {
     "node": ">=22.13"

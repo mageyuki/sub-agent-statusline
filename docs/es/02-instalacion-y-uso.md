@@ -1,6 +1,6 @@
 # Instalación y uso
 
-`opencode-subagent-statusline` se instala como plugin TUI de OpenCode. Una vez activo, agrega una sección de subagentes en la sidebar y un resumen compacto en la pantalla de inicio cuando hay actividad.
+`@mageyuki/opencode-subagent-statusline` se instala como plugin TUI de OpenCode. Una vez activo, agrega una sección de subagentes en la sidebar y un resumen compacto en la pantalla de inicio cuando hay actividad.
 
 ## Instalación en V2 2.0.11
 
@@ -13,7 +13,7 @@ Usá el archivo global `~/.config/opencode/cli.json` (o `$XDG_CONFIG_HOME/openco
 }
 ```
 
-El directorio absoluto debe contener directamente `tui.js` y los adaptadores diferidos adyacentes. En V2 no registres la raíz del paquete ni un archivo directo. Conservá el paquete instalado completo y sus dependencias en un artefacto revisado e inmutable. Para una release que incluya este puente, la forma por nombre es `"plugins": ["opencode-subagent-statusline"]`; la raíz y `/tui` siguen estables. Esta build de desarrollo no implica una publicación en npm.
+El directorio absoluto debe contener directamente `tui.js` y los adaptadores diferidos adyacentes. En V2 no registres la raíz del paquete ni un archivo directo. Conservá el paquete instalado completo y sus dependencias en un artefacto revisado e inmutable. Para una release que incluya este puente, la forma por nombre es `"plugins": ["@mageyuki/opencode-subagent-statusline"]`; la raíz y `/tui` siguen estables. Esta build de desarrollo no implica una publicación en npm.
 
 Preservá plugins/configuración ajenos y registrá una sola identidad `subagent-statusline.tui`. **Antes** de editar, guardá un backup con permisos restrictivos y el artefacto anterior: los cambios pueden recargarse en vivo. Para revertir, cambiá solo esta entrada si hubo otras ediciones; restaurá el backup completo solo si es seguro. El usuario controla los reinicios de la TUI habitual. Revisá `OPENCODE_CLI_CONFIG_CONTENT` si el archivo no tiene efecto.
 
@@ -28,7 +28,7 @@ Agregá el paquete al archivo de configuración TUI de OpenCode:
 ```json
 {
   "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["opencode-subagent-statusline"]
+  "plugin": ["@mageyuki/opencode-subagent-statusline"]
 }
 ```
 

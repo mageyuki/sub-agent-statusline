@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in contributing to `opencode-subagent-statusline` ❤️
+Thanks for your interest in contributing to `@mageyuki/opencode-subagent-statusline` ❤️
 
 We aim to keep contributions simple, respectful, and easy to review.
 

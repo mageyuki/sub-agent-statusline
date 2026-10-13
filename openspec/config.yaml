@@ -1,6 +1,6 @@
 project:
   name: sub-agent-statusline
-  package: opencode-subagent-statusline
+  package: "@mageyuki/opencode-subagent-statusline"
   description: OpenCode TUI/statusline plugin that monitors delegated subagent sessions, statuses, elapsed time, counters, and token/context usage when available.
   language: TypeScript
   module_system: ESM

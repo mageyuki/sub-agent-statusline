@@ -61,8 +61,8 @@ Fuente pública: `src/tui.tsx`; las responsabilidades legacy siguientes pertenec
 Es el entrypoint principal del paquete:
 
 ```txt
-opencode-subagent-statusline
-opencode-subagent-statusline/tui
+@mageyuki/opencode-subagent-statusline
+@mageyuki/opencode-subagent-statusline/tui
 ```
 
 Responsabilidades principales:
@@ -84,7 +84,7 @@ Fuente: `src/index.ts`
 Se publica como:
 
 ```txt
-opencode-subagent-statusline/runtime
+@mageyuki/opencode-subagent-statusline/runtime
 ```
 
 Este modo es más bajo nivel. No renderiza la sidebar TUI. En cambio:

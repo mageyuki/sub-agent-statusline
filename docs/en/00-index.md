@@ -1,6 +1,6 @@
 # English documentation
 
-This folder explains how `opencode-subagent-statusline` works: what problem it solves, how it integrates with OpenCode, how it processes subagent events, and how the project is maintained.
+This folder explains how `@mageyuki/opencode-subagent-statusline` works: what problem it solves, how it integrates with OpenCode, how it processes subagent events, and how the project is maintained.
 
 The documentation is written for two audiences:
 
