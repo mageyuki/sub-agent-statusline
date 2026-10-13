@@ -1,9 +1,9 @@
 # Fork provenance: @mageyuki/opencode-subagent-statusline
 
-Status:
+Status at release preparation (before npm publication):
 
 - `0.7.0` is the published first release of the scoped name.
-- `0.7.1` is an unpublished candidate. Its frozen-lockfile check and its isolated install of the current candidate (C, below) passed. Its actual-host CLI smoke is pending: the local explicit server requires a password, and no authenticated path has been supplied. It is not publishable yet.
+- `0.7.1` at release preparation: a metadata-only patch. Its frozen-lockfile check, its isolated install of candidate C (below), and one isolated existing-session CLI smoke (OpenCode CLI 2.0.27) passed. Publication is recorded by the registry, not by this file.
 
 ## Baselines
 
@@ -59,13 +59,15 @@ Relative to `484a38ee`:
 - Package fixture (existing 7 cases, extended): RED on the optional-only manifest (missing `@opentui/keymap` in the peer key set). GREEN after the metadata and lock change, 7/7. The literal guard-range expectation's own RED was not separately shown, because the key-set assertion failed first.
 - Lockfile regeneration: `pnpm install --lockfile-only --ignore-scripts --offline` PASS. A structural check against the committed lock confirmed the changes described above.
 - Frozen lockfile: `pnpm install --frozen-lockfile --ignore-scripts --offline` FAIL (a missing `@opentui/keymap` 0.5.10 tarball in the offline store). `pnpm install --frozen-lockfile --ignore-scripts` (locked public retrieval of that tarball) PASS, exit 0, and the lock stayed byte-identical.
-- Production audit: `pnpm audit --prod --audit-level moderate` PASS, exit 0 ("No known vulnerabilities found"). Development-only advisories were not evaluated for this change.
+- Production audit: `pnpm audit --prod --audit-level moderate` PASS, exit 0 ("No known vulnerabilities found"). Development-only advisories in this repository's dev toolchain remain present and are not fixed by this change.
 - Build: `pnpm build` PASS. `pnpm typecheck` PASS. `tsc --noEmit -p tsconfig.test.json` PASS. The 7 package cases are unchanged and PASS.
-- Isolated install of candidate C (the current candidate: source devDependency `@opentui/keymap` 0.5.10; tarball SHA256 `bea498e0cac0e359c950740c86f24a163c2e3e50861a2e2027751190db699ccb`; one attempt, fresh private target, Node 24.18.0, Arborist 9.4.0, config 10.8.1, empty user/global/project config, scripts ignored, audit off, default force/strict/legacy/omit/include/engineStrict): PASS. The private target resolved only `@mageyuki/opencode-subagent-statusline` 0.7.1. The optional UI, API, and keymap packages were not installed.
+- Isolated install of candidate C (candidate C: source devDependency `@opentui/keymap` 0.5.10; tarball SHA256 `bea498e0cac0e359c950740c86f24a163c2e3e50861a2e2027751190db699ccb`; one attempt, fresh private target, Node 24.18.0, Arborist 9.4.0, config 10.8.1, empty user/global/project config, scripts ignored, audit off, default force/strict/legacy/omit/include/engineStrict): PASS. The private target resolved only `@mageyuki/opencode-subagent-statusline` 0.7.1. The optional UI, API, and keymap packages were not installed.
 - An earlier candidate (before the devDependency correction) also installed in isolation with the same result. That earlier result is superseded by candidate C.
-- Actual-host CLI smoke: PENDING. The local explicit server (`127.0.0.1:49374`) rejected an unauthenticated request with a password requirement. No credential or environment secret was read, and no other endpoint or client was used. No normal interactive host was started.
+- Actual-host CLI smoke: PASS, for one isolated existing-session check (OpenCode CLI 2.0.27, candidate C). It ran in a PTY with a private cache and overlay, reused the already registered discovery URL (`127.0.0.1:49374`) without an explicit server, and sent no prompt. A private snapshot was written, the right-sidebar Subagents heading and status aggregate rendered, plugin warning/error records were 0, the controlled exit was 0, and protected state (live config, rollback diff, links, wrapper, units) was unchanged. An earlier explicit-server attempt without credentials was refused for a password requirement; that attempt is history. A probe-script assertion (API root versus data field) was corrected before the render run. That was a probe fix, not a candidate failure.
+- CI run [38419324808](https://github.com/mageyuki/sub-agent-statusline/actions/runs/38419324808) for `30c59b7`: test job 115372144714 and native job 115372144349 both completed SUCCESS. This public CI supports the production-audit pass for `30c59b7`. This file does not assert CI for the final docs commit.
+- Initial independent whole-diff source review: no Critical or Important findings; one minor provenance wording was corrected. Copilot (medium) finding r4259821434 concerned the old root production keymap `0.5.17` (an exact Solid version clash and a Node `>=26.4` requirement). It was accepted and addressed in `30c59b7` by a dev-only `@opentui/keymap` `0.5.10` aligned to core/solid, with the production closure removed. No review count is reset, and this file requests no further review.
 
 ## Verification limits
 
-- Not claimed: publication readiness, actual-host qualification, interactive TUI behavior, normal-TUI matrix, runtime or network success, or any OpenTUI `0.6` compatibility.
+- Not claimed: publication, a normal-TUI matrix, OS or terminal matrix, runtime or network behaviour beyond the one isolated smoke, broad OpenCode V2 compatibility beyond 2.0.11 (the 2.0.27 smoke does not widen it), or any OpenTUI `0.6` compatibility. No engine bound or global SDK-safety assurance is made.
 - The isolated install proves package resolution only, not runtime rendering.
