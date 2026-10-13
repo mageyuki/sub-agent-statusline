@@ -27,7 +27,24 @@ The stale-tag policy is intentionally strict: the tag target must equal `origin/
 
 ## One-Time Reconciliation
 
-This repository publishes under the scoped name `@mageyuki/opencode-subagent-statusline`, a new npm package distinct from upstream `opencode-subagent-statusline` (whose 1.x tags and npm versions are not this package's history). `package.json` starts the scoped line at `0.7.0`. Before the first tag, confirm that `0.7.0` is absent from npm and from this repository's stable tags; the release skill and workflow fail closed rather than choosing a version silently.
+This repository publishes under the scoped name `@mageyuki/opencode-subagent-statusline`, a new npm package distinct from upstream `opencode-subagent-statusline` (whose 1.x tags and npm versions are not this package's history). The scoped line's first published release is `0.7.0`; `package.json` carries `0.7.1`; that version is published only through the one-off exception below. Before tagging a version, confirm that version is absent from npm and from this repository's stable tags; the release skill and workflow fail closed rather than choosing a version silently.
+
+## 0.7.1 One-Off Manual Publication (authorized exception)
+
+This exception applies to `0.7.1` only. The tag-gated workflow above stays the path for every future release.
+
+- Scope: publish the exact final `0.7.1` tarball once, as `latest`. Create no annotated tag and no GitHub Release for this release. Merging to `main` never publishes.
+- Preconditions: the reviewed latest PR head has successful CI; the merged `main` release tree exactly matches that reviewed head; the tarball is packed from that exact `main` commit. If a `main` push CI run starts automatically, record it; this document requests no additional test gate or local full suite. The user's authorization is the approval for this exception, so no second approval gate applies.
+- Tarball: `tgz=./mageyuki-opencode-subagent-statusline-0.7.1.tgz`, produced by `pnpm pack` from the final `main` commit.
+- Read-only checks: `npm whoami --registry=https://registry.npmjs.org/` succeeds (credentials are handled internally by the existing npm login), and `npm view @mageyuki/opencode-subagent-statusline@0.7.1 version` reports not found. If the version already exists, stop. Never republish the same version.
+- Publish (operator command):
+
+  ```sh
+  npm publish "$tgz" --access=public --tag=latest --registry=https://registry.npmjs.org/ --browser=false --provenance=false
+  ```
+
+- Authentication: the existing npm client manages registration privately. The maintainer may complete a local TTY, web or one-time-password prompt. Do not copy secrets into the repository, evidence, logs, PRs or assistant sessions, and never ask the assistant for an OTP or token. This process changes no auth settings; existing `.npmrc` and environment configuration are used as they are. `--provenance=false` means this manual publish carries no provenance; the automated workflow remains the provenance path.
+- After publishing: `npm view @mageyuki/opencode-subagent-statusline@0.7.1 dist.integrity` must equal the integrity recorded when `$tgz` was packed.
 
 ## Recovery
 
