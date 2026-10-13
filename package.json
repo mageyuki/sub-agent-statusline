@@ -1,6 +1,6 @@
 {
   "name": "@mageyuki/opencode-subagent-statusline",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Unofficial fork of opencode-subagent-statusline: OpenCode plugin that exposes subagent session statusline state, with a V2 bridge",
   "type": "module",
   "repository": {
@@ -64,13 +64,18 @@
     "@opencode/plugin": "2.0.11",
     "@opencode/theme": "2.0.11",
     "@opentui/core": ">=0.4.0 <0.6",
+    "@opentui/keymap": ">=0.4.0 <0.6",
     "@opentui/solid": ">=0.4.0 <0.6",
     "solid-js": ">=1.9.12 <2"
   },
   "peerDependenciesMeta": {
     "@opencode-ai/plugin": { "optional": true },
     "@opencode/plugin": { "optional": true },
-    "@opencode/theme": { "optional": true }
+    "@opencode/theme": { "optional": true },
+    "@opentui/core": { "optional": true },
+    "@opentui/keymap": { "optional": true },
+    "@opentui/solid": { "optional": true },
+    "solid-js": { "optional": true }
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.15.11",

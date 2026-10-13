@@ -95,7 +95,7 @@ it("preserves public exports and ships both private adapters and declarations", 
   const source = JSON.parse(await readFile(join(project, "package.json"), "utf8"));
   const requiredPeers = [
     "@opencode-ai/plugin", "@opencode/plugin", "@opencode/theme",
-    "@opentui/core", "@opentui/solid", "solid-js",
+    "@opentui/core", "@opentui/keymap", "@opentui/solid", "solid-js",
   ] as const;
   function requiredRange(record: unknown, key: string): string {
     expect(record).not.toBeNull();
@@ -124,9 +124,14 @@ it("preserves public exports and ships both private adapters and declarations", 
   for (const peer of requiredPeers) {
     expect(requiredRange(manifest.peerDependencies, peer)).toBe(requiredRange(source.peerDependencies, peer));
   }
-  for (const peer of ["@opencode-ai/plugin", "@opencode/plugin", "@opencode/theme"]) {
-    expect(manifest.peerDependenciesMeta[peer].optional).toBe(true);
+  // Every host peer is optional in the packed manifest so an npm consumer does not
+  // auto-install a host copy that conflicts with the one the running host provides.
+  for (const peer of requiredPeers) {
+    expect(manifest.peerDependenciesMeta?.[peer]?.optional, peer).toBe(true);
   }
+  // Independent literal: the keymap guard bounds the optional legacy-SDK keymap recursion
+  // to the supported OpenTUI <0.6 family. Widening or dropping it reintroduces the 0.6.3 conflict.
+  expect(manifest.peerDependencies?.["@opentui/keymap"]).toBe(">=0.4.0 <0.6");
   expect(manifest.dependencies?.["@opencode/client"]).toBeUndefined();
 });
 
